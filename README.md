@@ -1,2 +1,7 @@
-# mesoscale_buoyancy_param_ML
-Repo showing how to train a ML model for buoyancy fluxes.
+# Data-driven parameterization for mesoscale buoyancy fluxes
+## Dhruv Balwada, Ryan Abernathey, Pavel Perezhogin, Alistair Adcroft and Laure Zanna
+### Lamont-Doherty Earth Observatory, Columbia University
+### Courant Institute of Mathematical Sciences, New York University
+### Princeton University
+
+Repo shows how results from this paper can be reproduced.
