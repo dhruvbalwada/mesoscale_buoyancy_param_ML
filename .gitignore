@@ -1,0 +1,9 @@
+.ipynb_checkpoints
+*.png
+*.pdf
+*.nc
+figures
+figure
+wandb
+ckpts*
+__pycache__
