@@ -23,11 +23,11 @@ class pointwise_model(nn.Module):
                 x = nn.relu(x)
         return x
     
-def initialize_model(features, num_inputs, bias=True):
+def initialize_model(features, num_inputs, bias=True, random_key=0):
     
     model = pointwise_model(features = features, bias = bias)
     
-    key1, key2 = random.split(random.PRNGKey(0))
+    key1, key2 = random.split(random.PRNGKey(random_key))
     
     x = random.normal(key1, (num_inputs,) )
     
