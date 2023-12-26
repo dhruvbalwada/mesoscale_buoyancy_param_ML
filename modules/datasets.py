@@ -133,7 +133,7 @@ class MITgcm_transformer(base_transformer):
     def convert_normed(self):
         self.read_dataset()
         self.transform_vars()
-        self.remove_boundary(largest_remove=True)
+        self.remove_boundary(largest_remove=False)
         #self.subsample()
         self.load_norm_factors()
         self.normalize()

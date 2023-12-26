@@ -4,12 +4,13 @@ import optax
 import flax
 import numpy as np
 from flax.training import train_state, checkpoints
-flax.config.update('flax_use_orbax_checkpointing', False)
+from flax.training import orbax_utils
+flax.config.update('flax_use_orbax_checkpointing', True)
 from jax import numpy as jnp
 import xarray as xr
+import orbax.checkpoint
 
 class ANN:
-    
     
     def __init__(self, shape=[24,24,2], num_in=7, bias=True):
         self.shape = shape
@@ -31,9 +32,12 @@ class RegressionSystem:
         self.lr = 0.01
         self.network = network
         self.criterion = jax.value_and_grad(ml_hf.mse)
+        
         self.train_loss = np.array([])
         self.test_loss = np.array([])
         self.setup_optimizer()
+        
+        self.epoch = 0
         
     def setup_optimizer(self):
         
@@ -66,6 +70,7 @@ class RegressionSystem:
         
         
         for i in range(num_epoch): 
+            self.epoch = self.epoch + 1
             
             loss_temp = np.array([])
             for batch in ML_data.bgen_train: 
@@ -86,15 +91,37 @@ class RegressionSystem:
                 print(f'Train loss step {i}: ', self.train_loss[-1], f'test loss:', self.test_loss[-1])
                 
     def save_checkpoint(self, CKPT_DIR): 
+        
+        # ckpt ={#'epoch': self.epoch, 
+        #         'training_state': self.state, 
+        #         'train_loss': self.train_loss, 
+        #         'test_loss': self.test_loss}
+        ckpt = self.state
+        self.CKPT_DIR = CKPT_DIR
+        # orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+        # save_args = orbax_utils.save_args_from_target(ckpt)
+        # orbax_checkpointer.save(CKPT_DIR, ckpt, save_args=save_args)
+
         checkpoints.save_checkpoint(ckpt_dir=CKPT_DIR, 
-                            target=self.state, step=0, overwrite=True)
+                           target=ckpt, step=self.epoch, overwrite=True)
         
     def read_checkpoint(self, CKPT_DIR): 
+        
+        # empty_state = {#'epoch': self.epoch, 
+        #         'training_state': self.state, 
+        #         'train_loss': self.train_loss, 
+        #         'test_loss': self.test_loss}
+        
         self.state = checkpoints.restore_checkpoint(ckpt_dir=CKPT_DIR, target=self.state)
+        #orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+        #orbax_checkpointer.restore(CKPT_DIR, item=self.state)
+        #self.state = ckpt.training_state
+        #self.train_loss
+        #self.state = 
+        #return ckpt
         
     def pred(self, X):
         return self.state.apply_fn(self.state.params, X)
-    
     
     
     def save_weights_nc(self, nc_fname): 
@@ -124,16 +151,16 @@ class RegressionSystem:
         else: 
             ds_layers['b0'] = xr.DataArray(np.zeros(self.network.shape[0]).astype('float32'), dims=['layer1'])
             ds_layers['b1'] = xr.DataArray(np.zeros(self.network.shape[1]).astype('float32'), dims=['layer2'])
-            ds_layers['b2'] = xr.DataArray(np.zeros(len(self.output_channels)).astype('float32'), dims=['output'])
+            ds_layers['b2'] = xr.DataArray(np.zeros(self.network.shape[2]).astype('float32'), dims=['output'])
 
 
         ds_layers['input_norms'] = xr.DataArray(input_norms.astype('float32'), dims=['input'])
         ds_layers['output_norms'] = xr.DataArray(output_norms.astype('float32'), dims=['output'])
         
+        ds_layers.attrs['CKPT_DIR'] = self.CKPT_DIR
+        ds_layers.attrs['shape'] = self.network.shape
+        ds_layers.attrs['num_in'] = len(self.input_channels)
+        
 
         ds_layers.to_netcdf(nc_fname, mode='w')
         
-class EvaluationSystem(RegressionSystem): 
-    
-    def test(self): 
-        return
