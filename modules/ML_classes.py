@@ -5,7 +5,7 @@ import flax
 import numpy as np
 from flax.training import train_state, checkpoints
 from flax.training import orbax_utils
-flax.config.update('flax_use_orbax_checkpointing', True)
+flax.config.update('flax_use_orbax_checkpointing', False)
 from jax import numpy as jnp
 import xarray as xr
 import orbax.checkpoint
@@ -160,6 +160,8 @@ class RegressionSystem:
         ds_layers.attrs['CKPT_DIR'] = self.CKPT_DIR
         ds_layers.attrs['shape'] = self.network.shape
         ds_layers.attrs['num_in'] = len(self.input_channels)
+        ds_layers.attrs['input_channels'] = self.input_channels
+        ds_layers.attrs['output_channels'] = self.output_channels
         
 
         ds_layers.to_netcdf(nc_fname, mode='w')
