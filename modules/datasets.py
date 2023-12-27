@@ -7,9 +7,13 @@ import numpy as np
 
 
 class base_transformer: 
-    def __init__(self, file_path, L, input_channels= ['U_x', 'U_y', 
-                                                      'V_x', 'V_y', 
-                                                      'Sx', 'Sy', 'Lfilt']):
+    def __init__(self, 
+                 file_path: str, 
+                 L: int, 
+                 input_channels = ['U_x', 'U_y', 
+                                    'V_x', 'V_y', 
+                                    'Sx', 'Sy', 'Lfilt']) -> None:
+        
         self.file_path = file_path
         self.L = L
         
@@ -170,7 +174,10 @@ class MITgcm_transformer(base_transformer):
         
         print('Test and train batches split. Number of batches: ' + str(len(self.bgen_train)) + '-' + str(len(self.bgen_test)) )
         
-#class MOM6_transformer(base_transformer):
+class MOM6_transformer(base_transformer):
+    
+    def transform_vars(self):
+        return 2
 
 
 
