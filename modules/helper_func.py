@@ -56,7 +56,7 @@ def masked_input_output(ds, mask, input_channels, output_channels, tol=0.99999):
     return ds[input_channels].where(mask>tol), ds[output_channels].where(mask>tol)
 # helps drop unnecessary variables
 
-def split_train_test(ds, train_slice = slice(0, 300), test_slice = slice(450, 495)):
+def split_train_test(ds, train_slice = slice(0, 450), test_slice = slice(450, 495)):
     ds_train = ds.isel(time=train_slice)
     ds_test  = ds.isel(time=test_slice)
     

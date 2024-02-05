@@ -52,6 +52,22 @@ class RegressionSystem:
         X = jnp.asarray(batch[self.input_channels].to_array().transpose(...,'variable').data)
         y = jnp.asarray(batch[self.output_channels].to_array().transpose(...,'variable').data)
         
+        #print(shape(X), shape(y))
+        
+        loss_val, grads = self.criterion(self.state.params, self.state.apply_fn, X, y)
+        
+        if kind == 'train':
+            self.state = self.state.apply_gradients(grads=grads)
+        
+        return loss_val
+    
+    def step_windowed(self, batch, kind='test'): 
+        X = jnp.asarray(batch[self.input_channels].to_stacked_array("input_features", sample_dims=['points']).data)
+        y = jnp.asarray( batch[self.output_channels].isel(Xn = int(self.window_size/2), Yn = int(self.window_size/2)
+                                                                     ).to_stacked_array("output_features", sample_dims=['points']).data)
+        
+        #print(X.shape, y.shape)
+        
         loss_val, grads = self.criterion(self.state.params, self.state.apply_fn, X, y)
         
         if kind == 'train':
@@ -89,6 +105,38 @@ class RegressionSystem:
             #print(i)
             if i % 20  == 0:
                 print(f'Train loss step {i}: ', self.train_loss[-1], f'test loss:', self.test_loss[-1])
+
+    def train_system_windowed(self, ML_data, num_epoch): 
+        
+        self.ML_data = ML_data
+        
+        self.input_channels  = ML_data.input_channels
+        self.output_channels = ML_data.output_channels
+        self.window_size = ML_data.window_size
+        
+        
+        
+        for i in range(num_epoch): 
+            self.epoch = self.epoch + 1
+            
+            loss_temp = np.array([])
+            for batch in ML_data.bgen_train: 
+                loss_val = self.step_windowed(batch, kind='train')
+                loss_temp = np.append(loss_temp, loss_val)
+            
+            self.train_loss = np.append(self.train_loss, np.mean(loss_temp))
+            
+            loss_temp = np.array([])
+            for batch in ML_data.bgen_test: 
+                loss_val = self.step_windowed(batch, kind='test')
+                loss_temp = np.append(loss_temp, loss_val)
+            
+            self.test_loss = np.append(self.test_loss, np.mean(loss_temp))
+            
+            #print(i)
+            if i % 1  == 0:
+                print(f'Train loss step {i}: ', self.train_loss[-1], f'test loss:', self.test_loss[-1])                
+    
                 
     def save_checkpoint(self, CKPT_DIR): 
         
