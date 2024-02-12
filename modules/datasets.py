@@ -162,10 +162,33 @@ class MITgcm_transformer(base_transformer):
         else: 
             self.norm_factors = norm_factors # to be used when evaluating
         self.normalize()
+
+    # The method below captures the behavior of the above two, slowly change out.
+    def convert_any(self, window_size, ML_name='single', norm_factors=None, sub_sample=False, largest_remove=False): 
+        self.window_size = window_size
+        self.read_dataset()
+        self.transform_vars()
+        self.remove_boundary(largest_remove=largest_remove)
+        #self.subsample()
+        if window_size>1:
+            self.ML_dataset = self.ML_dataset.rolling({'XC': window_size, 'YC': window_size},
+                                                                     min_periods=1, 
+                                                                     center=True).construct(XC='Xn',YC='Yn')
+            
+        if sub_sample:
+            self.subsample()
+            
+        if norm_factors is None: 
+            self.load_norm_factors(ML_name) # to be used when training
+        else: 
+            self.norm_factors = norm_factors # to be used when evaluating
+        self.normalize()
+
         
-    
-        
-    def generate_test_train_batches(self):
+    def generate_test_train_batches(self, input_dims={}):
+        '''
+        If windowing then use input_dims={'Xn':window_size,'Yn':window_size}
+        '''
         
         self.ds_train, self.ds_test = hf.split_train_test(self.ML_dataset_norm)
         
@@ -188,23 +211,20 @@ class MITgcm_transformer(base_transformer):
         
         
         self.bgen_train = xbatcher.BatchGenerator(ds = self.ds_train, 
-                               input_dims={},
+                               input_dims=input_dims,
                                batch_dims={'points': int(75600)}   )
 
         self.bgen_test = xbatcher.BatchGenerator(ds = self.ds_test, 
-                               input_dims={},
+                               input_dims=input_dims,
                                batch_dims={'points': int(75600)}   )
         
         print('Test and train batches split. Number of batches: ' + str(len(self.bgen_train)) + '-' + str(len(self.bgen_test)) )
 
-    
-    def generate_test_train_batches_windowed(self, window_size=1):
-        
-        self.ML_dataset_norm_windowed = self.ML_dataset_norm.rolling({'XC': window_size, 'YC': window_size}, min_periods=1, center=True).construct(XC='Xn',YC='Yn')
-        
-        self.window_size = window_size 
-        
-        self.ds_train, self.ds_test = hf.split_train_test(self.ML_dataset_norm_windowed)
+
+    # This function can also be discarded in favor of the one above, if used appropriately.
+    def generate_test_train_batches_windowed(self):
+         
+        self.ds_train, self.ds_test = hf.split_train_test(self.ML_dataset_norm)
         
         print("loading")
         self.ds_train.load();
@@ -225,11 +245,11 @@ class MITgcm_transformer(base_transformer):
         
         
         self.bgen_train = xbatcher.BatchGenerator(ds = self.ds_train, 
-                               input_dims={'Xn':window_size,'Yn':window_size},
+                               input_dims={'Xn':self.window_size,'Yn':self.window_size},
                                batch_dims={'points': int(75600)}   )
 
         self.bgen_test = xbatcher.BatchGenerator(ds = self.ds_test, 
-                               input_dims={'Xn':window_size,'Yn':window_size},
+                               input_dims={'Xn':self.window_size,'Yn':self.window_size},
                                batch_dims={'points': int(75600)}   )
         
         print('Test and train batches split. Number of batches: ' + str(len(self.bgen_train)) + '-' + str(len(self.bgen_test)) )

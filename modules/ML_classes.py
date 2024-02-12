@@ -115,7 +115,6 @@ class RegressionSystem:
         self.window_size = ML_data.window_size
         
         
-        
         for i in range(num_epoch): 
             self.epoch = self.epoch + 1
             
@@ -134,7 +133,7 @@ class RegressionSystem:
             self.test_loss = np.append(self.test_loss, np.mean(loss_temp))
             
             #print(i)
-            if i % 1  == 0:
+            if i % 20  == 0:
                 print(f'Train loss step {i}: ', self.train_loss[-1], f'test loss:', self.test_loss[-1])                
     
                 
@@ -185,8 +184,10 @@ class RegressionSystem:
 
         ds_layers = xr.Dataset()
 
-        ds_layers['layer_sizes'] = xr.DataArray(np.array([len(self.input_channels),self.network.shape[0], self.network.shape[1], 
-                                                          len(self.output_channels)]).astype('int32'), dims=['num_layers'])
+        ds_layers['layer_sizes'] = xr.DataArray(np.array([len(self.input_channels),
+                                                          self.network.shape[0], 
+                                                          self.network.shape[1], len(self.output_channels)]).astype('int32'), 
+                                                dims=['num_layers'])
 
         ds_layers['A0'] = xr.DataArray(np.array(self.state.params['params']['layers_0']['kernel']).astype('float32'), dims=['input', 'layer1'])
         ds_layers['A1'] = xr.DataArray(np.array(self.state.params['params']['layers_1']['kernel']).astype('float32'), dims=['layer1', 'layer2'])
@@ -203,6 +204,50 @@ class RegressionSystem:
 
 
         ds_layers['input_norms'] = xr.DataArray(input_norms.astype('float32'), dims=['input'])
+        ds_layers['output_norms'] = xr.DataArray(output_norms.astype('float32'), dims=['output'])
+        
+        ds_layers.attrs['CKPT_DIR'] = self.CKPT_DIR
+        ds_layers.attrs['shape'] = self.network.shape
+        ds_layers.attrs['num_in'] = len(self.input_channels)
+        ds_layers.attrs['input_channels'] = self.input_channels
+        ds_layers.attrs['output_channels'] = self.output_channels
+        
+
+        ds_layers.to_netcdf(nc_fname, mode='w')
+
+    def save_weights_nc_windowed(self, nc_fname): 
+        
+        input_norms = np.zeros((len(self.input_channels),))
+        output_norms = np.zeros((len(self.output_channels),))
+
+        for n, i in enumerate(self.input_channels):
+            input_norms[n] = self.ML_data.norm_factors[i].values
+
+        for n, i in enumerate(self.output_channels):
+            output_norms[n] = self.ML_data.norm_factors[i].values
+
+        ds_layers = xr.Dataset()
+
+        ds_layers['layer_sizes'] = xr.DataArray(np.array([len(self.input_channels)*self.ML_data.window_size**2,
+                                                          self.network.shape[0], 
+                                                          self.network.shape[1], len(self.output_channels)]).astype('int32'), 
+                                                dims=['num_layers'])
+
+        ds_layers['A0'] = xr.DataArray(np.array(self.state.params['params']['layers_0']['kernel']).astype('float32'), dims=['input', 'layer1'])
+        ds_layers['A1'] = xr.DataArray(np.array(self.state.params['params']['layers_1']['kernel']).astype('float32'), dims=['layer1', 'layer2'])
+        ds_layers['A2'] = xr.DataArray(np.array(self.state.params['params']['layers_2']['kernel']).astype('float32'), dims=['layer2', 'output'])
+
+        if self.network.bias:
+            ds_layers['b0'] = xr.DataArray(np.array(self.state.params['params']['layers_0']['bias']).astype('float32'), dims=['layer1'])
+            ds_layers['b1'] = xr.DataArray(np.array(self.state.params['params']['layers_1']['bias']).astype('float32'), dims=['layer2'])
+            ds_layers['b2'] = xr.DataArray(np.array(self.state.params['params']['layers_2']['bias']).astype('float32'), dims=['output'])
+        else: 
+            ds_layers['b0'] = xr.DataArray(np.zeros(self.network.shape[0]).astype('float32'), dims=['layer1'])
+            ds_layers['b1'] = xr.DataArray(np.zeros(self.network.shape[1]).astype('float32'), dims=['layer2'])
+            ds_layers['b2'] = xr.DataArray(np.zeros(self.network.shape[2]).astype('float32'), dims=['output'])
+
+
+        ds_layers['input_norms'] = xr.DataArray(input_norms.astype('float32'), dims=['input_channels'])
         ds_layers['output_norms'] = xr.DataArray(output_norms.astype('float32'), dims=['output'])
         
         ds_layers.attrs['CKPT_DIR'] = self.CKPT_DIR

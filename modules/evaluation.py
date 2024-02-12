@@ -4,7 +4,8 @@ import xarray as xr
 import matplotlib.pyplot as plt
 import xrft
 
-def full_reader(model_nc, data_zarr, L, data_kind, exp_name, ML_name,Tsel=slice(-50, None), Tdim='Time'):
+def full_reader(model_nc, data_zarr, L, data_kind, exp_name, ML_name,Tsel=slice(-25, None), Tdim='Time',
+               windowed=False, window_size=None):
     '''
 
     '''
@@ -12,12 +13,16 @@ def full_reader(model_nc, data_zarr, L, data_kind, exp_name, ML_name,Tsel=slice(
 
     eval_mod.read_model(model_nc)
     eval_mod.get_model_norm_factors_ds()
-    eval_mod.read_eval_data(data_zarr,L, data_kind)
 
-    eval_mod.sel_time(Tsel, Tdim)
-
-    eval_mod.pred()
-
+    if windowed:
+        eval_mod.read_eval_data_windowed(data_zarr,L, data_kind, window_size=window_size)
+        eval_mod.sel_time(Tsel, Tdim)
+        eval_mod.pred_windowed()
+    else:
+        eval_mod.read_eval_data(data_zarr,L, data_kind)
+        eval_mod.sel_time(Tsel, Tdim)
+        eval_mod.pred()
+    
     return eval_mod
 
 class EvaluationSystem: 
@@ -52,15 +57,31 @@ class EvaluationSystem:
         self.output_ds = self.eval_ds.ML_dataset[self.output_channels]
         
         self.input_ds_normed = self.eval_ds.ML_dataset_norm[self.input_channels]
+
+    def read_eval_data_windowed(self, data_fname, scale, data_kind, window_size=3):
         
+        if data_kind == 'MITgcm':
+            # Note that since we usually do evaluation on a single scale at a time, we load data per scale.
+            # this requires us to make sure that the right normalization factors are loaded in. 
+            self.eval_ds = datasets.MITgcm_transformer(data_fname, 
+                                                   scale, 
+                                                   self.input_channels) 
+            self.eval_ds.convert_any(norm_factors=self.norm_ds, window_size=window_size)
+        
+        self.input_ds  = self.eval_ds.ML_dataset[self.input_channels]
+        window_mid = int(self.eval_ds.window_size/2)
+        self.output_ds = self.eval_ds.ML_dataset[self.output_channels].isel(Xn=window_mid, Yn=window_mid)
+        
+        self.input_ds_normed = self.eval_ds.ML_dataset_norm[self.input_channels]
+    
     
     # Get ML model from weights for evaluation 
     def read_model(self, model_nc_fname):
         
         self.model_xr = xr.open_dataset(model_nc_fname) 
         
-        self.input_channels = self.model_xr.input_channels
-        self.output_channels = self.model_xr.output_channels
+        self.input_channels = self.model_xr.attrs['input_channels']
+        self.output_channels = self.model_xr.attrs['output_channels']
                                                    
                                                    
         self.ANN_model = ML_classes.ANN(shape = self.model_xr.shape, num_in = self.model_xr.num_in)
@@ -75,13 +96,13 @@ class EvaluationSystem:
         # corresponding to the model (rather than the dataset).
         self.norm_ds = xr.Dataset()
         
-        for i, var in enumerate(self.model_xr.input_channels):
+        for i, var in enumerate(self.model_xr.attrs['input_channels']):
             self.norm_ds[var] = self.model_xr.input_norms[i] 
-        for i, var in enumerate(self.model_xr.output_channels):
+        for i, var in enumerate(self.model_xr.attrs['output_channels']):
             self.norm_ds[var] = self.model_xr.output_norms[i] 
         
 
-    def sel_time(self, tsel = slice(-10, None), tdim='Time'): 
+    def sel_time(self, tsel = slice(-25, None), tdim='Time'): 
         self.input_ds = self.input_ds.isel(**{tdim:tsel})
         self.output_ds = self.output_ds.isel(**{tdim:tsel})
         
@@ -98,6 +119,21 @@ class EvaluationSystem:
         ds_pred = xr.DataArray(y_pred, dims=dims, coords=coords).to_dataset(dim='variable')
         # convert to real units
         self.output_pred_ds = ds_pred * self.eval_ds.norm_factors
+
+    def pred_windowed(self): 
+        
+        #y_pred = self.regress_sys.pred(self.input_ds_normed.to_array().transpose(...,'variable'))
+        y_pred = self.regress_sys.pred(self.input_ds_normed.to_stacked_array("input_features", sample_dims=['time','Z','YC','XC']).data)
+
+        
+        
+        dims = self.output_ds.to_array().transpose(...,'variable').dims
+        coords = self.output_ds.to_array().transpose(...,'variable').coords
+        
+        ds_pred = xr.DataArray(y_pred, dims=dims, coords=coords).to_dataset(dim='variable')
+        # convert to real units
+        self.output_pred_ds = ds_pred * self.eval_ds.norm_factors
+    
         
     def horz_snapshot_plot_MITgcm(self, Zlev=5, Tlev = -1, var='Sfny'): 
         
@@ -213,4 +249,8 @@ class EvaluationSystem:
         Sfn_anom = Sfn_true - Sfn_pred
         
         return Sfn_true, Sfn_pred, Sfn_anom
+
+
+    #def evaluate_PE(self): 
+        
         
