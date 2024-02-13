@@ -3,6 +3,8 @@ import datasets
 import xarray as xr
 import matplotlib.pyplot as plt
 import xrft
+import PE_module
+import numpy as np
 
 def full_reader(model_nc, data_zarr, L, data_kind, exp_name, ML_name,Tsel=slice(-25, None), Tdim='Time',
                windowed=False, window_size=None):
@@ -251,6 +253,68 @@ class EvaluationSystem:
         return Sfn_true, Sfn_pred, Sfn_anom
 
 
-    #def evaluate_PE(self): 
+    def evaluate_PE(self, Tsel = slice(-25, None)): 
+        ds_filt = self.eval_ds.dataset.isel(Time=Tsel)
+        
+        ds_filt['e'] = ds_filt.e - ds_filt.e.isel(Time=0).mean(['xh','yh']) # some way to go to APE from PE. 
+        
+        uh_sg_true = ds_filt.uh_sg.isel(zl=1)
+        vh_sg_true = ds_filt.vh_sg.isel(zl=1)
+        uh_sg_pred = self.output_pred_ds['Sfnx']
+        vh_sg_pred = self.output_pred_ds['Sfny']
+
+        _, _, div_uh_sg_true  = self._div_uphp(uh_sg_true, vh_sg_true)
+        _, _, div_uh_sg_pred  = self._div_uphp(uh_sg_pred, vh_sg_pred)
+
+        ds_filt['div_uh_sg_true'] = div_uh_sg_true
+        ds_filt['div_uh_sg_pred'] = div_uh_sg_pred
+
+        eta_tend_true = np.zeros_like(ds_filt.e)
+        eta_tend_pred = np.zeros_like(ds_filt.e)
+        
+        eta_tend_true[:,1,:,:] = - ds_filt['div_uh_sg_true'] # Assuming that the eta tend go to 0 back on top.
+        eta_tend_pred[:,1,:,:] = - ds_filt['div_uh_sg_pred']
+        
+        ds_filt['dt_eta_mean_by_eddy_true'] = xr.DataArray(eta_tend_true, dims=ds_filt.e.dims)
+        ds_filt['dt_eta_mean_by_eddy_pred'] = xr.DataArray(eta_tend_pred, dims=ds_filt.e.dims)
+
+        ds_filt['MPE_tend_eddy_true'], _ = PE_module.PE_tend(ds_filt,'dt_eta_mean_by_eddy_true')
+        ds_filt['MPE_tend_eddy_pred'], _ = PE_module.PE_tend(ds_filt,'dt_eta_mean_by_eddy_pred')
+
+        ds_filt['MPE_tend_eddy_spectral_true'], _ = PE_module.PE_tend_spectral(ds_filt,'dt_eta_mean_by_eddy_true')
+        ds_filt['MPE_tend_eddy_spectral_pred'], _ = PE_module.PE_tend_spectral(ds_filt,'dt_eta_mean_by_eddy_pred')
+
+        return ds_filt
+
+    @staticmethod
+    def _div_uphp(uh_sg, vh_sg):
+        '''
+        Estimate the divergence of the uh 
+        This is slightly more annoying than trying to use xgcm, 
+        because we have made the predictions on
+        the center of the grid. 
+        '''
+        dx = (uh_sg.xh[1] - uh_sg.xh[0]).values * 1e3
+        uh_sg_i = uh_sg
+        uh_sg_ip1 = uh_sg.roll(xh=-1)
+        
+        uh_sg_q = 0.5*(uh_sg_ip1 + uh_sg_i)
+        
+        uh_sg_q_im1 = uh_sg_q.roll(xh=1)
+        
+        dx_uh_sg = (uh_sg_q - uh_sg_q_im1)/dx 
+        
+        dy = (uh_sg.yh[1] - uh_sg.yh[0]).values *1e3
+        vh_sg_i = vh_sg
+        vh_sg_ip1 = vh_sg.roll(yh=-1)
+        
+        vh_sg_q = 0.5*(vh_sg_ip1 + vh_sg_i)
+        
+        vh_sg_q_im1 = vh_sg_q.roll(yh=1)
+        
+        dy_vh_sg = (vh_sg_q - vh_sg_q_im1)/dy
+    
+        return dx_uh_sg, dy_vh_sg, dx_uh_sg + dy_vh_sg
+        
         
         
