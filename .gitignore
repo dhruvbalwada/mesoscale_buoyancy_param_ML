@@ -7,3 +7,4 @@ figure
 wandb
 ckpts*
 __pycache__
+data

@@ -23,6 +23,79 @@ def div_uh(ds):
 
     return div_uh, uh, vh
 
+def GM(ds, kappa=1000.): 
+    xgrid = Grid(ds, coords={'X': {'center': 'xh', 'right': 'xq'},
+                         'Y': {'center': 'yh', 'right': 'yq'},
+                         'Z': {'center': 'zl', 'outer': 'zi'} },
+             periodic=['X'])
+
+    dx = ds.xh.diff('xh')[0].values*1e3
+
+    eta_x = xgrid.diff(ds.e.isel(zi=1), 'X', boundary='periodic')/dx
+    eta_y = xgrid.diff(ds.e.isel(zi=1), 'Y', boundary='extend')/dx
+
+    uphp_gm = np.zeros_like(ds.u)
+    vphp_gm = np.zeros_like(ds.v)
+
+    uphp_gm[:,1,:,:] = - kappa* eta_x
+    vphp_gm[:,1,:,:] = - kappa* eta_y
+
+    uphp_gm[:,0,:,:] =  kappa* eta_x
+    vphp_gm[:,0,:,:] =  kappa* eta_y
+
+    # The above formulae only work for 2 layers. With more layers
+    # we need to first define stream function and then go through that.
+
+    uphp_gm = xr.DataArray(uphp_gm, dims=ds.u.dims)
+    vphp_gm = xr.DataArray(vphp_gm, dims=ds.v.dims)
+
+    uphp_gm_x = xgrid.diff(uphp_gm, 'X', boundary='periodic')/dx
+    vphp_gm_y = xgrid.diff(vphp_gm, 'Y', boundary='extend')/dx
+   
+    div_uphp_gm = uphp_gm_x + vphp_gm_y
+
+    return div_uphp_gm, uphp_gm, vphp_gm
+
+def NGM(ds, C=1.): 
+    xgrid = Grid(ds, coords={'X': {'center': 'xh', 'right': 'xq'},
+                         'Y': {'center': 'yh', 'right': 'yq'},
+                         'Z': {'center': 'zl', 'outer': 'zi'} },
+             periodic=['X'])
+
+    dx = ds.xh.diff('xh')[0].values*1e3
+
+    eta_x = xgrid.diff(ds.e.isel(zi=1), 'X', boundary='periodic')/dx
+    eta_y = xgrid.diff(ds.e.isel(zi=1), 'Y', boundary='extend')/dx
+
+    u_x = xgrid.diff(ds.u.isel(zi=1), 'X', boundary='periodic')/dx
+    v_x = xgrid.diff(ds.v.isel(zi=1), 'X', boundary='periodic')/dx
+    u_y = xgrid.diff(ds.u.isel(zi=1), 'Y', boundary='extend')/dx
+    v_y = xgrid.diff(ds.v.isel(zi=1), 'Y', boundary='extend')/dx
+    ## Need to get all to proper grids. 
+    
+    uphp_gm = np.zeros_like(ds.u)
+    vphp_gm = np.zeros_like(ds.v)
+
+    uphp_gm[:,1,:,:] = - kappa* eta_x
+    vphp_gm[:,1,:,:] = - kappa* eta_y
+
+    uphp_gm[:,0,:,:] =  kappa* eta_x
+    vphp_gm[:,0,:,:] =  kappa* eta_y
+
+    # The above formulae only work for 2 layers. With more layers
+    # we need to first define stream function and then go through that.
+
+    uphp_gm = xr.DataArray(uphp_gm, dims=ds.u.dims)
+    vphp_gm = xr.DataArray(vphp_gm, dims=ds.v.dims)
+
+    uphp_gm_x = xgrid.diff(uphp_gm, 'X', boundary='periodic')/dx
+    vphp_gm_y = xgrid.diff(vphp_gm, 'Y', boundary='extend')/dx
+   
+    div_uphp_gm = uphp_gm_x + vphp_gm_y
+
+    return div_uphp_gm
+    
+
 def filter_dataset(ds, Lfilter): 
     
     dx = ds.xh.diff('xh')[0].values*1e3
@@ -82,6 +155,8 @@ def filter_dataset(ds, Lfilter):
     ds_filt['div_uphp'] = ds_filt['div_uhbar'] - ds_filt['div_ubarhbar']
     ds_filt['uphp'] = ds_filt['uhbar'] - ds_filt['ubarhbar']
     ds_filt['vphp'] = ds_filt['vhbar'] - ds_filt['vbarhbar']
+
+    ds_filt['div_uphp_gm'], ds_filt['uphp_gm'], ds_filt['vphp_gm'] = GM(ds_filt)
     # print('Filtered fields computed')
     
     # ds_filt['uh'] = ds.h*u_c
@@ -179,3 +254,4 @@ def PE_tend_spectral(ds, var = 'dt_eta'):
     PE_tend = PE_tend_i.sum('zi')
     
     return PE_tend, PE_tend_i
+
