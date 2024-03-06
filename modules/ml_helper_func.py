@@ -55,6 +55,14 @@ def mlse(params, apply_fn, x_batched, y_batched):
     
     return jnp.nanmean(jax.vmap(log_squared_error)(x_batched, y_batched), axis=0) # 0 is sample axis
 
+def mse_local_norm(params, apply_fn, x_batched, y_batched, Psi_mag):
+    
+    # Define squared loss for a single pair (x,y), where y can be a vector (multi-dim output) 
+    def squared_error(x,y,Psi_mag):
+        pred = apply_fn(params, x) * Psi_mag
+        return jnp.inner(y-pred, y-pred) / 2.0
+    
+    return jnp.nanmean(jax.vmap(squared_error)(x_batched, y_batched, Psi_mag), axis=0) # 0 is sample axis
 
 def drop_nan(ds, var='uT'):
     return ds.where(~np.isnan(ds[var]), drop=True)

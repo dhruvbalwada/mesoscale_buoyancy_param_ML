@@ -27,11 +27,16 @@ class ANN:
     
 class RegressionSystem: 
     
-    def __init__(self, network, lr=0.01): 
+    def __init__(self, network, lr=0.01, local_norm=False): 
         
         self.lr = 0.01
         self.network = network
-        self.criterion = jax.value_and_grad(ml_hf.mse)
+        self.local_norm = local_norm
+        
+        if local_norm==False:
+            self.criterion = jax.value_and_grad(ml_hf.mse)
+        else:
+            self.criterion = jax.value_and_grad(ml_hf.mse_local_norm)
         
         self.train_loss = np.array([])
         self.test_loss = np.array([])
@@ -74,9 +79,56 @@ class RegressionSystem:
             self.state = self.state.apply_gradients(grads=grads)
         
         return loss_val
+
+    def step_local_normed(self, batch, kind='test'):
+        
+        X_vel = batch[['U_x', 'U_y','V_x', 'V_y']].to_array().transpose(...,'variable')
+        X_S = batch[['Sx', 'Sy']].to_array().transpose(...,'variable')
+        X_vel_mag = ((X_vel**2).mean('variable'))**0.5 + 1e-10
+        X_S_mag = ((X_S**2).mean('variable'))**0.5 + 1e-10
+        X_scale_mag = batch['Lfilt']*1e3
+        X_vel_normed = X_vel/X_vel_mag
+        X_S_normed = X_S/X_S_mag
+
+        psi_mag = jnp.asarray((X_vel_mag*X_S_mag*(X_scale_mag**2)).data.reshape(-1,1))
+        
+        X = jnp.asarray(xr.concat([X_vel_normed, X_S_normed], dim='variable').data)
+        y = jnp.asarray(batch[self.output_channels].to_array().transpose(...,'variable').data)
+
+        loss_val, grads = self.criterion(self.state.params, self.state.apply_fn, X, y, psi_mag)
+        
+        if kind == 'train':
+            self.state = self.state.apply_gradients(grads=grads)
+        
+        return loss_val
+
+    def step_local_normed_windowed(self, batch, kind='test'):
+        
+        X_vel = batch[['U_x', 'U_y','V_x', 'V_y']].to_stacked_array("input_features", sample_dims=['points'])
+        X_S = batch[['Sx', 'Sy']].to_stacked_array("input_features", sample_dims=['points'])
+        X_vel_mag = ((X_vel**2).mean('input_features'))**0.5 + 1e-10
+        X_S_mag = ((X_S**2).mean('input_features'))**0.5 + 1e-10
+        X_scale_mag = batch['Lfilt'].isel(Xn = int(self.window_size/2), Yn = int(self.window_size/2))*1e3
+        X_vel_normed = X_vel/X_vel_mag
+        X_S_normed = X_S/X_S_mag
+
+        psi_mag = jnp.asarray((X_vel_mag*X_S_mag*(X_scale_mag**2)).data.reshape(-1,1))
+        #print(psi_mag.shape)
+        
+        X = jnp.asarray(xr.concat([X_vel_normed, X_S_normed], dim='input_features').data)
+        #print(X.shape)
+        y = jnp.asarray(batch[self.output_channels].isel(Xn = int(self.window_size/2), Yn = int(self.window_size/2)
+                                                                     ).to_stacked_array("output_features", sample_dims=['points']).data)
+        #print(y.shape)
+
+        loss_val, grads = self.criterion(self.state.params, self.state.apply_fn, X, y, psi_mag)
+        
+        if kind == 'train':
+            self.state = self.state.apply_gradients(grads=grads)
+        
+        return loss_val
     
-    
-    def train_system(self, ML_data, num_epoch): 
+    def train_system(self, ML_data, num_epoch, print_freq=20): 
         
         self.ML_data = ML_data
         
@@ -84,29 +136,36 @@ class RegressionSystem:
         self.output_channels = ML_data.output_channels
         
         
-        
         for i in range(num_epoch): 
             self.epoch = self.epoch + 1
             
             loss_temp = np.array([])
             for batch in ML_data.bgen_train: 
-                loss_val = self.step(batch, kind='train')
+                if self.local_norm:
+                    loss_val = self.step_local_normed(batch, kind='train')
+                    #print(str(i) +' = '+str(loss_val))
+                else:
+                    loss_val = self.step(batch, kind='train')
+                
                 loss_temp = np.append(loss_temp, loss_val)
             
             self.train_loss = np.append(self.train_loss, np.mean(loss_temp))
             
             loss_temp = np.array([])
             for batch in ML_data.bgen_test: 
-                loss_val = self.step(batch, kind='test')
+                if self.local_norm:
+                    loss_val = self.step_local_normed(batch, kind='test')
+                else:
+                    loss_val = self.step(batch, kind='test')
                 loss_temp = np.append(loss_temp, loss_val)
             
             self.test_loss = np.append(self.test_loss, np.mean(loss_temp))
             
             #print(i)
-            if i % 20  == 0:
+            if i % print_freq  == 0:
                 print(f'Train loss step {i}: ', self.train_loss[-1], f'test loss:', self.test_loss[-1])
 
-    def train_system_windowed(self, ML_data, num_epoch): 
+    def train_system_windowed(self, ML_data, num_epoch, print_freq=20): 
         
         self.ML_data = ML_data
         
@@ -120,20 +179,28 @@ class RegressionSystem:
             
             loss_temp = np.array([])
             for batch in ML_data.bgen_train: 
-                loss_val = self.step_windowed(batch, kind='train')
+                if self.local_norm:
+                    loss_val = self.step_local_normed_windowed(batch, kind='train')
+                    #print(loss_val)
+                else:
+                    loss_val = self.step_windowed(batch, kind='train')
+                
                 loss_temp = np.append(loss_temp, loss_val)
             
             self.train_loss = np.append(self.train_loss, np.mean(loss_temp))
             
             loss_temp = np.array([])
             for batch in ML_data.bgen_test: 
-                loss_val = self.step_windowed(batch, kind='test')
+                if self.local_norm:
+                    loss_val = self.step_local_normed_windowed(batch, kind='test')
+                else:
+                    loss_val = self.step_windowed(batch, kind='test')
                 loss_temp = np.append(loss_temp, loss_val)
             
             self.test_loss = np.append(self.test_loss, np.mean(loss_temp))
             
             #print(i)
-            if i % 20  == 0:
+            if i % print_freq  == 0:
                 print(f'Train loss step {i}: ', self.train_loss[-1], f'test loss:', self.test_loss[-1])                
     
                 
@@ -169,18 +236,52 @@ class RegressionSystem:
         
     def pred(self, X):
         return self.state.apply_fn(self.state.params, X)
+
+    def pred_local_normed(self, X): 
+        X_vel = X[['U_x', 'U_y','V_x', 'V_y']].to_array().transpose(...,'variable')
+        X_S = X[['Sx', 'Sy']].to_array().transpose(...,'variable')
+        X_vel_mag = ( (X_vel**2).mean('variable') )**0.5 + 1e-10
+        X_S_mag = ( (X_S**2).mean('variable') )**0.5 + 1e-10
+        X_scale_mag = X['Lfilt']*1e3
+        X_vel_normed = X_vel/X_vel_mag
+        X_S_normed = X_S/X_S_mag
+
+        psi_mag = jnp.asarray((X_vel_mag*X_S_mag*(X_scale_mag**2)).data[..., jnp.newaxis])
+        
+        X_input = jnp.asarray(xr.concat([X_vel_normed, X_S_normed], dim='variable').data)
+
+        return self.state.apply_fn(self.state.params, X_input) * psi_mag
+
+    def pred_local_normed_windowed(self, X, window_size=3):
+        self.window_size = window_size
+        X_vel = X[['U_x', 'U_y','V_x', 'V_y']].to_stacked_array("input_features", sample_dims=['time', 'Z', 'YC', 'XC'])
+        X_S = X[['Sx', 'Sy']].to_stacked_array("input_features", sample_dims=['time', 'Z', 'YC', 'XC'])
+        X_vel_mag = ((X_vel**2).mean('input_features'))**0.5 + 1e-10
+        X_S_mag = ((X_S**2).mean('input_features'))**0.5 + 1e-10
+        X_scale_mag = X['Lfilt'].isel(Xn = int(self.window_size/2), Yn = int(self.window_size/2))*1e3
+        X_vel_normed = X_vel/X_vel_mag
+        X_S_normed = X_S/X_S_mag
+
+        psi_mag = jnp.asarray((X_vel_mag*X_S_mag*(X_scale_mag**2)).data[..., jnp.newaxis])
+        #print(psi_mag.shape)
+        
+        X_input = jnp.asarray(xr.concat([X_vel_normed, X_S_normed], dim='input_features').data)
+
+        return self.state.apply_fn(self.state.params, X_input) * psi_mag
+
     
     
     def save_weights_nc(self, nc_fname): 
-        
-        input_norms = np.zeros((len(self.input_channels),))
-        output_norms = np.zeros((len(self.output_channels),))
 
-        for n, i in enumerate(self.input_channels):
-            input_norms[n] = self.ML_data.norm_factors[i].values
-
-        for n, i in enumerate(self.output_channels):
-            output_norms[n] = self.ML_data.norm_factors[i].values
+        if self.local_norm == False:
+            input_norms = np.zeros((len(self.input_channels),))
+            output_norms = np.zeros((len(self.output_channels),))
+    
+            for n, i in enumerate(self.input_channels):
+                input_norms[n] = self.ML_data.norm_factors[i].values
+    
+            for n, i in enumerate(self.output_channels):
+                output_norms[n] = self.ML_data.norm_factors[i].values
 
         ds_layers = xr.Dataset()
 
@@ -202,9 +303,9 @@ class RegressionSystem:
             ds_layers['b1'] = xr.DataArray(np.zeros(self.network.shape[1]).astype('float32'), dims=['layer2'])
             ds_layers['b2'] = xr.DataArray(np.zeros(self.network.shape[2]).astype('float32'), dims=['output'])
 
-
-        ds_layers['input_norms'] = xr.DataArray(input_norms.astype('float32'), dims=['input'])
-        ds_layers['output_norms'] = xr.DataArray(output_norms.astype('float32'), dims=['output'])
+        if self.local_norm==False:
+            ds_layers['input_norms'] = xr.DataArray(input_norms.astype('float32'), dims=['input'])
+            ds_layers['output_norms'] = xr.DataArray(output_norms.astype('float32'), dims=['output'])
         
         ds_layers.attrs['CKPT_DIR'] = self.CKPT_DIR
         ds_layers.attrs['shape'] = self.network.shape

@@ -7,19 +7,33 @@ import PE_module
 import numpy as np
 
 def full_reader(model_nc, data_zarr, L, data_kind, exp_name, ML_name,Tsel=slice(-25, None), Tdim='Time',
-               windowed=False, window_size=None):
+               windowed=False, window_size=None, local_norm=False):
     '''
 
     '''
     eval_mod = EvaluationSystem()
 
     eval_mod.read_model(model_nc)
-    eval_mod.get_model_norm_factors_ds()
+    if local_norm==False:
+        eval_mod.get_model_norm_factors_ds()
 
-    if windowed:
+    if local_norm & windowed: 
+        print('Local normed and windowed')
+        eval_mod.read_eval_data_local_normed_windowed(data_zarr, data_kind, Lkey=L, window_size=window_size)
+        eval_mod.eval_ds.datatree = eval_mod.eval_ds.datatree.isel({Tdim:Tsel})
+        eval_mod.sel_time(Tsel, Tdim, local_norm=True)
+        eval_mod.pred_local_norm_window(L)
+    elif windowed:
+        print('Windowed')
         eval_mod.read_eval_data_windowed(data_zarr,L, data_kind, window_size=window_size)
         eval_mod.sel_time(Tsel, Tdim)
         eval_mod.pred_windowed()
+    elif local_norm:
+        print('Local normed')
+        eval_mod.read_eval_data_local_normed(data_zarr, data_kind, Lkey=L)
+        eval_mod.eval_ds.datatree = eval_mod.eval_ds.datatree.isel({Tdim:Tsel})
+        eval_mod.sel_time(Tsel, Tdim, local_norm=True)
+        eval_mod.pred_local_norm(L)
     else:
         eval_mod.read_eval_data(data_zarr,L, data_kind)
         eval_mod.sel_time(Tsel, Tdim)
@@ -60,6 +74,55 @@ class EvaluationSystem:
         
         self.input_ds_normed = self.eval_ds.ML_dataset_norm[self.input_channels]
 
+    def read_eval_data_local_normed(self, data_fname, data_kind, Lkey='50'): 
+        if data_kind == 'MITgcm': 
+            self.eval_ds = datasets.MITgcm_all_transformer('_', 
+                                                   '-', 
+                                                   self.input_channels)
+            self.eval_ds.read_datatree(data_fname, keep_filt_scale=True, sub_sample=False, 
+                                       largest_remove=False, Lkeys=[Lkey])
+
+        if data_kind == 'MOM6_P2L': 
+            self.eval_ds = datasets.MOM6_all_transformer('_', 
+                                                   '-', 
+                                                   self.input_channels)
+            self.eval_ds.read_datatree(data_fname, keep_filt_scale=True, sub_sample=False, 
+                                       largest_remove=False, large_filt=int(Lkey), Lkeys=[Lkey])
+
+        if data_kind == 'MOM6_DG': 
+            self.eval_ds = datasets.MOM6_all_transformer('_', 
+                                                   '-', 
+                                                   self.input_channels)
+            self.eval_ds.read_datatree(data_fname, file_names='res5km/ml_data_', 
+                                       keep_filt_scale=True, sub_sample=False, 
+                                       largest_remove=False, large_filt=int(Lkey)/100,
+                                       H_mask=500, Lkeys=[Lkey])
+            
+        self.input_ds = self.eval_ds.datatree[Lkey].ds[self.input_channels]
+        self.output_ds = self.eval_ds.datatree[Lkey].ds[self.output_channels]
+            
+
+    def read_eval_data_local_normed_windowed(self, data_bucket, data_kind, window_size=3, Lkey='50'):
+        if data_kind == 'MITgcm':
+            self.eval_ds = datasets.MITgcm_all_transformer('-', '-', 
+                                      input_channels=['U_x', 'U_y', 
+                                                      'V_x', 'V_y', 
+                                                      'Sx', 'Sy'])
+
+            self.eval_ds.read_datatree(data_bucket, keep_filt_scale=True, window_size=window_size, sub_sample=False, 
+                                       largest_remove=False, Lkeys=[Lkey])
+        if data_kind == 'MOM6_P2L': 
+            self.eval_ds = datasets.MOM6_all_transformer('_', 
+                                                   '-', 
+                                                   self.input_channels)
+            self.eval_ds.read_datatree(data_fname, keep_filt_scale=True, sub_sample=False, 
+                                       largest_remove=False, large_filt=int(Lkey), Lkeys=[Lkey])
+        
+        self.input_ds = self.eval_ds.datatree[Lkey].ds[self.input_channels]
+        window_mid = int(self.eval_ds.window_size/2)
+        self.output_ds = self.eval_ds.datatree[Lkey].ds[self.output_channels].isel(Xn=window_mid, Yn=window_mid)
+
+    
     def read_eval_data_windowed(self, data_fname, scale, data_kind, window_size=3):
         
         if data_kind == 'MITgcm':
@@ -78,9 +141,10 @@ class EvaluationSystem:
     
     
     # Get ML model from weights for evaluation 
-    def read_model(self, model_nc_fname):
+    def read_model(self, model_nc_fname, local_norm=False):
         
         self.model_xr = xr.open_dataset(model_nc_fname) 
+        self.local_norm=local_norm
         
         self.input_channels = self.model_xr.attrs['input_channels']
         self.output_channels = self.model_xr.attrs['output_channels']
@@ -88,7 +152,7 @@ class EvaluationSystem:
                                                    
         self.ANN_model = ML_classes.ANN(shape = self.model_xr.shape, num_in = self.model_xr.num_in)
         
-        self.regress_sys = ML_classes.RegressionSystem(self.ANN_model)
+        self.regress_sys = ML_classes.RegressionSystem(self.ANN_model, self.local_norm)
         
         self.regress_sys.read_checkpoint(self.model_xr.CKPT_DIR)
         
@@ -104,11 +168,12 @@ class EvaluationSystem:
             self.norm_ds[var] = self.model_xr.output_norms[i] 
         
 
-    def sel_time(self, tsel = slice(-25, None), tdim='Time'): 
+    def sel_time(self, tsel = slice(-25, None), tdim='Time', local_norm=False): 
         self.input_ds = self.input_ds.isel(**{tdim:tsel})
         self.output_ds = self.output_ds.isel(**{tdim:tsel})
-        
-        self.input_ds_normed = self.input_ds_normed.isel(**{tdim:tsel})
+
+        if local_norm==False:
+            self.input_ds_normed = self.input_ds_normed.isel(**{tdim:tsel})
         
     
     def pred(self): 
@@ -126,8 +191,6 @@ class EvaluationSystem:
         
         #y_pred = self.regress_sys.pred(self.input_ds_normed.to_array().transpose(...,'variable'))
         y_pred = self.regress_sys.pred(self.input_ds_normed.to_stacked_array("input_features", sample_dims=['time','Z','YC','XC']).data)
-
-        
         
         dims = self.output_ds.to_array().transpose(...,'variable').dims
         coords = self.output_ds.to_array().transpose(...,'variable').coords
@@ -135,7 +198,40 @@ class EvaluationSystem:
         ds_pred = xr.DataArray(y_pred, dims=dims, coords=coords).to_dataset(dim='variable')
         # convert to real units
         self.output_pred_ds = ds_pred * self.eval_ds.norm_factors
-    
+
+    def pred_local_norm(self, L):
+        #y_pred
+        #for L in ['50','100','200','400']: 
+        #print(L)
+        data = self.eval_ds.datatree[L].to_dataset()
+        
+        y_pred = self.regress_sys.pred_local_normed(data)
+
+        output_pred_ds = xr.Dataset()
+        
+        output_pred_ds['Sfnx'] = xr.DataArray(y_pred[...,0], dims= self.output_ds['Sfnx'].dims,
+                                    coords= self.output_ds['Sfnx'].coords)
+        output_pred_ds['Sfny'] = xr.DataArray(y_pred[...,1], dims= self.output_ds['Sfny'].dims,
+                                    coords= self.output_ds['Sfny'].coords)
+
+        
+        #self.eval_ds.datatree[L].ds = data
+        self.output_pred_ds = output_pred_ds
+
+    def pred_local_norm_window(self, L): 
+        data = self.eval_ds.datatree[L].to_dataset()
+
+        y_pred = self.regress_sys.pred_local_normed_windowed(data, window_size=self.eval_ds.window_size)
+
+        output_pred_ds = xr.Dataset()
+        
+        output_pred_ds['Sfnx'] = xr.DataArray(y_pred[...,0], dims= self.output_ds['Sfnx'].dims,
+                                    coords= self.output_ds['Sfnx'].coords)
+        output_pred_ds['Sfny'] = xr.DataArray(y_pred[...,1], dims= self.output_ds['Sfny'].dims,
+                                    coords= self.output_ds['Sfny'].coords)
+
+        self.output_pred_ds = output_pred_ds
+            
         
     def horz_snapshot_plot_MITgcm(self, Zlev=5, Tlev = -1, var='Sfny'): 
         
@@ -223,13 +319,13 @@ class EvaluationSystem:
         return self._correlation(self.output_ds, self.output_pred_ds, var, dims)
     
     def zonal_PS_MITgcm(self, var='Sfnx', avg_dims=['time','YC']):
-        ps_true = xrft.power_spectrum(self.output_ds[var].drop(['Depth', 'hFacC', 'maskC', 'rA']), 
+        ps_true = xrft.power_spectrum(self.output_ds[var].chunk({'XC':-1}).drop(['Depth', 'hFacC', 'maskC', 'rA']).sel(XC=slice(400e3, 1600e3)), 
                     'XC')
 
-        ps_pred = xrft.power_spectrum(self.output_pred_ds[var].drop(['Depth', 'hFacC', 'maskC', 'rA']), 
+        ps_pred = xrft.power_spectrum(self.output_pred_ds[var].chunk({'XC':-1}).drop(['Depth', 'hFacC', 'maskC', 'rA']).sel(XC=slice(400e3, 1600e3)), 
                     'XC')
         
-        ps_anom = xrft.power_spectrum( (self.output_ds - self.output_pred_ds)[var].drop(['Depth', 'hFacC', 'maskC', 'rA']), 
+        ps_anom = xrft.power_spectrum( (self.output_ds - self.output_pred_ds)[var].chunk({'XC':-1}).drop(['Depth', 'hFacC', 'maskC', 'rA']).sel(XC=slice(400e3, 1600e3)), 
                     'XC')
         
         return ps_true.mean(avg_dims), ps_pred.mean(avg_dims), ps_anom.mean(avg_dims)

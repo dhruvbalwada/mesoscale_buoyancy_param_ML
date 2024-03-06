@@ -70,7 +70,7 @@ class MITgcm_transformer(base_transformer):
         self.mask = ds_mask_tree[Lstr].to_dataset().maskC
         
         
-    def transform_vars(self): 
+    def transform_vars(self, keep_filt_scale=False): 
         
         ds_centered = self._center_dataset()
         
@@ -85,9 +85,13 @@ class MITgcm_transformer(base_transformer):
 
         ds_centered['Lfilt'] = (float(self.L) + 0*ds_centered.T)
 
-        self.ML_dataset = xr.merge([ds_centered[self.output_channels], 
-                                    ds_centered[self.input_channels]])
-    
+        if keep_filt_scale==False: 
+            self.ML_dataset = xr.merge([ds_centered[self.output_channels], 
+                                        ds_centered[self.input_channels]])
+        else:
+            self.ML_dataset = xr.merge([ds_centered[self.output_channels], 
+                                        ds_centered[self.input_channels], 
+                                        ds_centered['Lfilt']])
     
     def remove_boundary(self, largest_remove=True): 
         
@@ -257,24 +261,35 @@ class MITgcm_transformer(base_transformer):
         
 class MITgcm_all_transformer(MITgcm_transformer):    
     
-    def read_datatree(self, M2LINES_bucket): 
-             
-        self.Lkeys = ['50','100','200','400']
+    def read_datatree(self, M2LINES_bucket, keep_filt_scale=False, 
+                      sub_sample=True, largest_remove=True, 
+                      Lkeys = ['50','100','200','400'],
+                      window_size=1): 
+        
+        self.window_size = window_size
+        self.Lkeys = Lkeys
         dtree = {}
         for L in self.Lkeys:
             self.L = L
             self.file_path = f'{M2LINES_bucket}/ML_data/ds_ML_'+L+'km_3D'
             self.read_dataset()
-            self.transform_vars()
-            self.remove_boundary(largest_remove=True)
-            self.subsample()
+            self.transform_vars(keep_filt_scale=keep_filt_scale)
+            self.remove_boundary(largest_remove=largest_remove)
+
+            if self.window_size>1:
+                self.ML_dataset = self.ML_dataset.rolling({'XC': window_size, 'YC': window_size},
+                                                                     min_periods=1, 
+                                                                     center=True).construct(XC='Xn',YC='Yn')
+            
+            if sub_sample:
+                self.subsample()
             
             dtree[L] = self.ML_dataset.copy()
         
         self.datatree = DataTree.from_dict(dtree)
         self.masktree = open_datatree(f'{M2LINES_bucket}/ML_data/ds_ML_masks', engine='zarr')
 
-    def generate_test_train_batches(self): 
+    def generate_test_train_batches(self, normalize=True, input_dims={}): 
         self.ds_train, self.ds_test = hf.split_train_test(self.datatree)
         
         self.ds_train = self.ds_train.stack(points=('XC','YC','Z','time'))
@@ -286,25 +301,25 @@ class MITgcm_all_transformer(MITgcm_transformer):
         self.ds_train = self.ds_train.dropna('points', subset=['Sfnx'])
         self.ds_test  = self.ds_test.dropna('points', subset=['Sfnx'])
         
-        npoints_train = len(self.ds_train['Sfnx'])
-        npoints_test = len(self.ds_test['Sfnx'])
+        npoints_train = len(self.ds_train['points'])
+        npoints_test = len(self.ds_test['points'])
         
         self.ds_train.load();
         self.ds_test.load();
         
         self.ds_train = self.ds_train.isel(points=np.random.choice(npoints_train, size=npoints_train, replace=False))
         self.ds_test  = self.ds_test.isel(points=np.random.choice(npoints_test, size=npoints_test, replace=False))
-        
-        self.load_norm_factors()
-        
-        self.normalize()
+
+        if normalize == True:
+            self.load_norm_factors()
+            self.normalize()
         
         self.bgen_train = xbatcher.BatchGenerator(ds = self.ds_train, 
-                               input_dims={},
+                               input_dims=input_dims,
                                batch_dims={'points': int(756000/2)}   )
 
         self.bgen_test = xbatcher.BatchGenerator(ds = self.ds_test, 
-                               input_dims={},
+                               input_dims=input_dims,
                                batch_dims={'points': int(756000/2)}   )
         
         print('Test and train batches split. Number of batches: ' + str(len(self.bgen_train)) + '-' + str(len(self.bgen_test)) )
@@ -338,7 +353,7 @@ class MITgcm_all_transformer(MITgcm_transformer):
         
     
 class MOM6_transformer(base_transformer):
-    def transform_vars(self, choice=1):
+    def transform_vars(self, choice=1, keep_filt_scale=False):
         
         ds_temp = self.dataset.copy()
         
@@ -365,10 +380,15 @@ class MOM6_transformer(base_transformer):
         ds_temp['Sfny'] = ds_temp.vh_sg.isel(zl=1)
         
         ds_temp['Lfilt'] = (float(self.L) + 0*ds_temp['Sx'])
+
+        if keep_filt_scale==False: 
+            self.ML_dataset = xr.merge([ds_temp[self.output_channels], 
+                                        ds_temp[self.input_channels]])
+        else:
+            self.ML_dataset = xr.merge([ds_temp[self.output_channels], 
+                                        ds_temp[self.input_channels], 
+                                        ds_temp['Lfilt']])
         
-        
-        self.ML_dataset = xr.merge([ds_temp[self.output_channels], 
-                                    ds_temp[self.input_channels]])
         
     def remove_boundary(self, largest_remove=True, large_filt = 400): 
         
@@ -467,24 +487,33 @@ class MOM6_transformer(base_transformer):
         
         
 class MOM6_all_transformer(MOM6_transformer):    
-    def read_datatree(self, MOM6_bucket, file_names='res4km_sponge10day_long_ml_data_', largest_remove=True, H_mask=0, large_filt=400): 
+    def read_datatree(self, MOM6_bucket, file_names='res4km_sponge10day_long_ml_data_', 
+                      largest_remove=True, H_mask=0, large_filt=400, keep_filt_scale=False, 
+                      sub_sample=True, Lkeys = ['50','100','200','400']): 
              
-        self.Lkeys = ['50', '100','200','400']
+        self.Lkeys = Lkeys
         dtree = {}
         for L in self.Lkeys:
             self.L = L
             self.file_path = f'{MOM6_bucket}{file_names}'+L+'km.zarr'
             self.read_dataset()
-            self.transform_vars()
+            self.transform_vars(keep_filt_scale=keep_filt_scale)
             self.mask_domain(H_mask)
             self.remove_boundary(largest_remove=largest_remove, large_filt=large_filt)
-            self.subsample()
+
+            if self.window_size>1: 
+                self.ML_dataset = self.ML_dataset.rolling({'XC': window_size, 'YC': window_size},
+                                                                     min_periods=1, 
+                                                                     center=True).construct(XC='Xn',YC='Yn')
+            
+            if sub_sample:
+                self.subsample()
             
             dtree[L] = self.ML_dataset.copy()
         
         self.datatree = DataTree.from_dict(dtree)
         
-    def generate_test_train_batches(self, exp_name='P2L'): 
+    def generate_test_train_batches(self, exp_name='P2L', normalize=True, input_dims={}): 
         nTime = len(self.datatree['100'].Time)
         
         fac = .9
@@ -513,17 +542,17 @@ class MOM6_all_transformer(MOM6_transformer):
         
         self.ds_train = self.ds_train.isel(points=np.random.choice(npoints_train, size=npoints_train, replace=False))
         self.ds_test  = self.ds_test.isel(points=np.random.choice(npoints_test, size=npoints_test, replace=False))
-        
-        self.load_norm_factors(exp_name)
-        
-        self.normalize()
+
+        if normalize == True:
+            self.load_norm_factors(exp_name)
+            self.normalize()
         
         self.bgen_train = xbatcher.BatchGenerator(ds = self.ds_train, 
-                               input_dims={},
+                               input_dims=input_dims,
                                batch_dims={'points': int(npoints_train/37)}   )
 
         self.bgen_test = xbatcher.BatchGenerator(ds = self.ds_test, 
-                               input_dims={},
+                               input_dims=input_dims,
                                batch_dims={'points': int(npoints_test/5)}   )
         
         print('Test and train batches split. Number of batches: ' + str(len(self.bgen_train)) + '-' + str(len(self.bgen_test)) )
