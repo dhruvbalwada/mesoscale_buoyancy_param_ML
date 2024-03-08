@@ -70,7 +70,7 @@ class MITgcm_transformer(base_transformer):
         self.mask = ds_mask_tree[Lstr].to_dataset().maskC
         
         
-    def transform_vars(self, keep_filt_scale=False): 
+    def transform_vars(self, keep_filt_scale=False, para_perp_out=False): 
         
         ds_centered = self._center_dataset()
         
@@ -80,8 +80,31 @@ class MITgcm_transformer(base_transformer):
         ds_centered['Sx'] = -ds_centered['T_x']/ds_centered['T_z']
         ds_centered['Sy'] = -ds_centered['T_y']/ds_centered['T_z']
 
-        ds_centered['Sfnx'] =  - ds_centered['uT']/ds_centered['T_z']
-        ds_centered['Sfny'] =  - ds_centered['vT']/ds_centered['T_z']
+        if para_perp_out: 
+            print('Out para perp')
+            ds_centered['Sfnx'] =  - ds_centered['uT']/ds_centered['T_z']
+            ds_centered['Sfny'] =  - ds_centered['vT']/ds_centered['T_z']
+            
+            S_mag = (ds_centered.Sx * ds_centered.Sx + ds_centered.Sy * ds_centered.Sy)**0.5
+        
+            # Unit vector components in S direction
+            Shatx = ds_centered.Sx/S_mag
+            Shaty = ds_centered.Sy/S_mag
+        
+            # Unit vector components perp to S direction
+            Nhatx = - ds_centered.Sy/S_mag
+            Nhaty = ds_centered.Sx/S_mag
+
+            #ds_centered['Sfn_perp_scalar'] = (ds.Sfnx * Shatx + ds.Sfny * Shaty)
+            #ds_centered['Sfn_para_scalar'] = (ds.Sfnx * Nhatx + ds.Sfny * Nhaty)
+
+            # Being lazy I have rename things here such that now x represents component in direction of S 
+            ds_centered['Sfnx'] = (ds_centered.Sfnx * Shatx + ds_centered.Sfny * Shaty)
+            ds_centered['Sfny'] = (ds_centered.Sfnx * Nhatx + ds_centered.Sfny * Nhaty)
+            
+        else:
+            ds_centered['Sfnx'] =  - ds_centered['uT']/ds_centered['T_z']
+            ds_centered['Sfny'] =  - ds_centered['vT']/ds_centered['T_z']
 
         ds_centered['Lfilt'] = (float(self.L) + 0*ds_centered.T)
 
@@ -264,7 +287,7 @@ class MITgcm_all_transformer(MITgcm_transformer):
     def read_datatree(self, M2LINES_bucket, keep_filt_scale=False, 
                       sub_sample=True, largest_remove=True, 
                       Lkeys = ['50','100','200','400'],
-                      window_size=1): 
+                      window_size=1, para_perp_out=False): 
         
         self.window_size = window_size
         self.Lkeys = Lkeys
@@ -273,7 +296,7 @@ class MITgcm_all_transformer(MITgcm_transformer):
             self.L = L
             self.file_path = f'{M2LINES_bucket}/ML_data/ds_ML_'+L+'km_3D'
             self.read_dataset()
-            self.transform_vars(keep_filt_scale=keep_filt_scale)
+            self.transform_vars(keep_filt_scale=keep_filt_scale, para_perp_out=para_perp_out)
             self.remove_boundary(largest_remove=largest_remove)
 
             if self.window_size>1:
@@ -353,7 +376,7 @@ class MITgcm_all_transformer(MITgcm_transformer):
         
     
 class MOM6_transformer(base_transformer):
-    def transform_vars(self, choice=1, keep_filt_scale=False):
+    def transform_vars(self, choice=1, keep_filt_scale=False, para_perp_out=False):
         
         ds_temp = self.dataset.copy()
         
@@ -376,8 +399,30 @@ class MOM6_transformer(base_transformer):
             ds_temp['V_x'] = ds_temp.dvdx.isel(zl=1)
             ds_temp['V_y'] = ds_temp.dvdy.isel(zl=1)
 
-        ds_temp['Sfnx'] = ds_temp.uh_sg.isel(zl=1)
-        ds_temp['Sfny'] = ds_temp.vh_sg.isel(zl=1)
+        if para_perp_out:
+            print('Out para perp')
+            ds_temp['Sfnx'] = ds_temp.uh_sg.isel(zl=1)
+            ds_temp['Sfny'] = ds_temp.vh_sg.isel(zl=1)
+            
+            S_mag = (ds_temp.Sx * ds_temp.Sx + ds_temp.Sy * ds_temp.Sy)**0.5
+        
+            # Unit vector components in S direction
+            Shatx = ds_temp.Sx/S_mag
+            Shaty = ds_temp.Sy/S_mag
+        
+            # Unit vector components perp to S direction
+            Nhatx = - ds_temp.Sy/S_mag
+            Nhaty = ds_temp.Sx/S_mag
+
+            #ds_centered['Sfn_perp_scalar'] = (ds.Sfnx * Shatx + ds.Sfny * Shaty)
+            #ds_centered['Sfn_para_scalar'] = (ds.Sfnx * Nhatx + ds.Sfny * Nhaty)
+
+            # Being lazy I have rename things here such that now x represents component in direction of S 
+            ds_temp['Sfnx'] = (ds_temp.Sfnx * Shatx + ds_temp.Sfny * Shaty)
+            ds_temp['Sfny'] = (ds_temp.Sfnx * Nhatx + ds_temp.Sfny * Nhaty)
+        else:
+            ds_temp['Sfnx'] = ds_temp.uh_sg.isel(zl=1)
+            ds_temp['Sfny'] = ds_temp.vh_sg.isel(zl=1)
         
         ds_temp['Lfilt'] = (float(self.L) + 0*ds_temp['Sx'])
 
@@ -489,22 +534,23 @@ class MOM6_transformer(base_transformer):
 class MOM6_all_transformer(MOM6_transformer):    
     def read_datatree(self, MOM6_bucket, file_names='res4km_sponge10day_long_ml_data_', 
                       largest_remove=True, H_mask=0, large_filt=400, keep_filt_scale=False, 
-                      sub_sample=True, Lkeys = ['50','100','200','400']): 
-             
+                      sub_sample=True, Lkeys = ['50','100','200','400'], window_size=1, para_perp_out=False): 
+
+        self.window_size = window_size
         self.Lkeys = Lkeys
         dtree = {}
         for L in self.Lkeys:
             self.L = L
             self.file_path = f'{MOM6_bucket}{file_names}'+L+'km.zarr'
             self.read_dataset()
-            self.transform_vars(keep_filt_scale=keep_filt_scale)
+            self.transform_vars(keep_filt_scale=keep_filt_scale, para_perp_out=para_perp_out)
             self.mask_domain(H_mask)
             self.remove_boundary(largest_remove=largest_remove, large_filt=large_filt)
 
             if self.window_size>1: 
-                self.ML_dataset = self.ML_dataset.rolling({'XC': window_size, 'YC': window_size},
+                self.ML_dataset = self.ML_dataset.rolling({'xh': window_size, 'yh': window_size},
                                                                      min_periods=1, 
-                                                                     center=True).construct(XC='Xn',YC='Yn')
+                                                                     center=True).construct(xh='Xn',yh='Yn')
             
             if sub_sample:
                 self.subsample()

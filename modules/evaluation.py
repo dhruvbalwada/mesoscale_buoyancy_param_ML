@@ -7,7 +7,7 @@ import PE_module
 import numpy as np
 
 def full_reader(model_nc, data_zarr, L, data_kind, exp_name, ML_name,Tsel=slice(-25, None), Tdim='Time',
-               windowed=False, window_size=None, local_norm=False):
+               windowed=False, window_size=None, local_norm=False, out_para_perp=False, dims_input = ['time', 'Z', 'YC', 'XC']):
     '''
 
     '''
@@ -22,7 +22,7 @@ def full_reader(model_nc, data_zarr, L, data_kind, exp_name, ML_name,Tsel=slice(
         eval_mod.read_eval_data_local_normed_windowed(data_zarr, data_kind, Lkey=L, window_size=window_size)
         eval_mod.eval_ds.datatree = eval_mod.eval_ds.datatree.isel({Tdim:Tsel})
         eval_mod.sel_time(Tsel, Tdim, local_norm=True)
-        eval_mod.pred_local_norm_window(L)
+        eval_mod.pred_local_norm_window(L, dims_input = dims_input)
     elif windowed:
         print('Windowed')
         eval_mod.read_eval_data_windowed(data_zarr,L, data_kind, window_size=window_size)
@@ -30,7 +30,7 @@ def full_reader(model_nc, data_zarr, L, data_kind, exp_name, ML_name,Tsel=slice(
         eval_mod.pred_windowed()
     elif local_norm:
         print('Local normed')
-        eval_mod.read_eval_data_local_normed(data_zarr, data_kind, Lkey=L)
+        eval_mod.read_eval_data_local_normed(data_zarr, data_kind, Lkey=L, out_para_perp=out_para_perp)
         eval_mod.eval_ds.datatree = eval_mod.eval_ds.datatree.isel({Tdim:Tsel})
         eval_mod.sel_time(Tsel, Tdim, local_norm=True)
         eval_mod.pred_local_norm(L)
@@ -74,20 +74,20 @@ class EvaluationSystem:
         
         self.input_ds_normed = self.eval_ds.ML_dataset_norm[self.input_channels]
 
-    def read_eval_data_local_normed(self, data_fname, data_kind, Lkey='50'): 
+    def read_eval_data_local_normed(self, data_fname, data_kind, Lkey='50', out_para_perp=False): 
         if data_kind == 'MITgcm': 
             self.eval_ds = datasets.MITgcm_all_transformer('_', 
                                                    '-', 
                                                    self.input_channels)
             self.eval_ds.read_datatree(data_fname, keep_filt_scale=True, sub_sample=False, 
-                                       largest_remove=False, Lkeys=[Lkey])
+                                       largest_remove=False, Lkeys=[Lkey], para_perp_out = out_para_perp)
 
         if data_kind == 'MOM6_P2L': 
             self.eval_ds = datasets.MOM6_all_transformer('_', 
                                                    '-', 
                                                    self.input_channels)
             self.eval_ds.read_datatree(data_fname, keep_filt_scale=True, sub_sample=False, 
-                                       largest_remove=False, large_filt=int(Lkey), Lkeys=[Lkey])
+                                       largest_remove=False, large_filt=int(Lkey), Lkeys=[Lkey], para_perp_out = out_para_perp)
 
         if data_kind == 'MOM6_DG': 
             self.eval_ds = datasets.MOM6_all_transformer('_', 
@@ -115,7 +115,7 @@ class EvaluationSystem:
             self.eval_ds = datasets.MOM6_all_transformer('_', 
                                                    '-', 
                                                    self.input_channels)
-            self.eval_ds.read_datatree(data_fname, keep_filt_scale=True, sub_sample=False, 
+            self.eval_ds.read_datatree(data_bucket, keep_filt_scale=True, sub_sample=False, window_size=window_size,
                                        largest_remove=False, large_filt=int(Lkey), Lkeys=[Lkey])
         
         self.input_ds = self.eval_ds.datatree[Lkey].ds[self.input_channels]
@@ -218,10 +218,14 @@ class EvaluationSystem:
         #self.eval_ds.datatree[L].ds = data
         self.output_pred_ds = output_pred_ds
 
-    def pred_local_norm_window(self, L): 
+    def pred_local_norm_window(self, L, dims_input = ['time', 'Z', 'YC', 'XC']): 
+        '''
+        There is a problem right now for periodic boundaries : https://github.com/pydata/xarray/issues/2007 
+        Hopefully this only shows up when working with evaluation as the nan's get thrown out during the training phase. 
+        '''
         data = self.eval_ds.datatree[L].to_dataset()
 
-        y_pred = self.regress_sys.pred_local_normed_windowed(data, window_size=self.eval_ds.window_size)
+        y_pred = self.regress_sys.pred_local_normed_windowed(data, window_size=self.eval_ds.window_size, dims_input=dims_input)
 
         output_pred_ds = xr.Dataset()
         
@@ -330,12 +334,12 @@ class EvaluationSystem:
         
         return ps_true.mean(avg_dims), ps_pred.mean(avg_dims), ps_anom.mean(avg_dims)
     
-    def zonal_PS_P2L(self, var='Sfny', avg_dims=['Time','yh']):
-        ps_true = xrft.power_spectrum(self.output_ds[var], 'xh')
+    def zonal_PS_P2L(self, var='Sfny', avg_dims=['Time','yh'], xh_slice=slice(0, None)):
+        ps_true = xrft.power_spectrum(self.output_ds[var].sel(xh=xh_slice), 'xh')
 
-        ps_pred = xrft.power_spectrum(self.output_pred_ds[var],'xh')
+        ps_pred = xrft.power_spectrum(self.output_pred_ds[var].sel(xh=xh_slice),'xh')
         
-        ps_anom = xrft.power_spectrum( (self.output_ds - self.output_pred_ds)[var], 'xh')
+        ps_anom = xrft.power_spectrum( (self.output_ds - self.output_pred_ds)[var].sel(xh=xh_slice), 'xh')
         
         return ps_true.mean(avg_dims), ps_pred.mean(avg_dims), ps_anom.mean(avg_dims)
     
@@ -411,6 +415,32 @@ class EvaluationSystem:
         dy_vh_sg = (vh_sg_q - vh_sg_q_im1)/dy
     
         return dx_uh_sg, dy_vh_sg, dx_uh_sg + dy_vh_sg
+
+
+    def para_perp_2_xy(self): 
         
-        
-        
+        self.output_ds['Sfn_perp_x'], self.output_ds['Sfn_perp_y'], self.output_ds['Sfn_para_x'], self.output_ds['Sfn_para_y'] = self._project_slope2xy(self.output_ds.Sfnx, self.output_ds.Sfny, self.input_ds.Sx, self.input_ds.Sy) 
+
+        self.output_pred_ds['Sfn_perp_x'], self.output_pred_ds['Sfn_perp_y'], self.output_pred_ds['Sfn_para_x'], self.output_pred_ds['Sfn_para_y'] = self._project_slope2xy(self.output_pred_ds.Sfnx, self.output_pred_ds.Sfny, self.input_ds.Sx, self.input_ds.Sy) 
+
+
+    @staticmethod
+    def _project_slope2xy(Sfn_perp_scalar, Sfn_para_scalar, Sx, Sy): 
+        S_mag = (Sx**2 + Sy**2 )**0.5
+
+        # Unit vector components in S direction
+        Shatx = Sx/S_mag
+        Shaty = Sy/S_mag
+    
+        # Unit vector components perp to S direction
+        Nhatx = - Sy/S_mag
+        Nhaty = Sx/S_mag
+
+        Sfn_perp_x = Sfn_perp_scalar * Shatx
+        Sfn_perp_y = Sfn_perp_scalar * Shaty
+    
+        Sfn_para_x = Sfn_para_scalar * Nhatx
+        Sfn_para_y = Sfn_para_scalar * Nhaty
+
+        return Sfn_perp_x, Sfn_perp_y, Sfn_para_x, Sfn_para_y
+

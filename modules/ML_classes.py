@@ -252,10 +252,10 @@ class RegressionSystem:
 
         return self.state.apply_fn(self.state.params, X_input) * psi_mag
 
-    def pred_local_normed_windowed(self, X, window_size=3):
+    def pred_local_normed_windowed(self, X, window_size=3, dims_input=['time', 'Z', 'YC', 'XC']):
         self.window_size = window_size
-        X_vel = X[['U_x', 'U_y','V_x', 'V_y']].to_stacked_array("input_features", sample_dims=['time', 'Z', 'YC', 'XC'])
-        X_S = X[['Sx', 'Sy']].to_stacked_array("input_features", sample_dims=['time', 'Z', 'YC', 'XC'])
+        X_vel = X[['U_x', 'U_y','V_x', 'V_y']].to_stacked_array("input_features", sample_dims=dims_input)
+        X_S = X[['Sx', 'Sy']].to_stacked_array("input_features", sample_dims=dims_input)
         X_vel_mag = ((X_vel**2).mean('input_features'))**0.5 + 1e-10
         X_S_mag = ((X_S**2).mean('input_features'))**0.5 + 1e-10
         X_scale_mag = X['Lfilt'].isel(Xn = int(self.window_size/2), Yn = int(self.window_size/2))*1e3
