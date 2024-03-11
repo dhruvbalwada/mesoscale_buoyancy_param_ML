@@ -12,10 +12,10 @@ import orbax.checkpoint
 
 class ANN:
     
-    def __init__(self, shape=[24,24,2], num_in=7, bias=True):
+    def __init__(self, shape=[24,24,2], num_in=7, bias=True, diffuse=False):
         self.shape = shape
         self.bias = bias
-        self.model, self.params = ml_hf.initialize_model(shape, num_in , bias=self.bias)
+        self.model, self.params = ml_hf.initialize_model(shape, num_in , bias=self.bias, diffuse=diffuse)
         
     def count_parameters(self):
         param_count = sum(x.size for x in jax.tree_util.tree_leaves(self.params))
@@ -27,14 +27,19 @@ class ANN:
     
 class RegressionSystem: 
     
-    def __init__(self, network, lr=0.01, local_norm=False): 
+    def __init__(self, network, lr=0.01, local_norm=False, diffuse=False): 
         
         self.lr = 0.01
         self.network = network
         self.local_norm = local_norm
+        self.diffuse = diffuse
+
         
         if local_norm==False:
             self.criterion = jax.value_and_grad(ml_hf.mse)
+        elif (local_norm == True) & (diffuse==True): 
+            print('here')
+            self.criterion = jax.value_and_grad(ml_hf.mse_local_norm_diffuse)
         else:
             self.criterion = jax.value_and_grad(ml_hf.mse_local_norm)
         
@@ -102,6 +107,29 @@ class RegressionSystem:
         
         return loss_val
 
+    # def step_local_normed_diffuse(self, batch, kind='test'):
+        
+    #     X_vel = batch[['U_x', 'U_y','V_x', 'V_y']].to_array().transpose(...,'variable')
+    #     X_S = batch[['Sx', 'Sy']].to_array().transpose(...,'variable')
+    #     X_vel_mag = ((X_vel**2).mean('variable'))**0.5 + 1e-10
+    #     X_S_mag = ((X_S**2).mean('variable'))**0.5 + 1e-10
+    #     X_scale_mag = batch['Lfilt']*1e3
+    #     X_vel_normed = X_vel/X_vel_mag
+    #     X_S_normed = X_S/X_S_mag
+
+    #     psi_mag = jnp.asarray((X_vel_mag*X_S_mag*(X_scale_mag**2)).data.reshape(-1,1))
+    #     S_mag = jnp.asarray( X_S_mag.data.reshape(-1,1) )
+        
+    #     X = jnp.asarray(xr.concat([X_vel_normed, X_S_normed], dim='variable').data)
+    #     y = jnp.asarray(batch[self.output_channels].to_array().transpose(...,'variable').data)
+
+    #     loss_val, grads = self.criterion(self.state.params, self.state.apply_fn, X, y, psi_mag, S_mag)
+        
+    #     if kind == 'train':
+    #         self.state = self.state.apply_gradients(grads=grads)
+        
+    #     return loss_val
+
     def step_local_normed_windowed(self, batch, kind='test'):
         
         X_vel = batch[['U_x', 'U_y','V_x', 'V_y']].to_stacked_array("input_features", sample_dims=['points'])
@@ -141,9 +169,12 @@ class RegressionSystem:
             
             loss_temp = np.array([])
             for batch in ML_data.bgen_train: 
-                if self.local_norm:
+                if self.local_norm & (self.diffuse==False):
                     loss_val = self.step_local_normed(batch, kind='train')
                     #print(str(i) +' = '+str(loss_val))
+                elif self.local_norm & self.diffuse: 
+                    loss_val = self.step_local_normed_diffuse(batch, kind='train')
+                    print(str(i) +' = '+str(loss_val))
                 else:
                     loss_val = self.step(batch, kind='train')
                 
@@ -153,8 +184,10 @@ class RegressionSystem:
             
             loss_temp = np.array([])
             for batch in ML_data.bgen_test: 
-                if self.local_norm:
+                if self.local_norm  & (self.diffuse==False):
                     loss_val = self.step_local_normed(batch, kind='test')
+                elif self.local_norm & self.diffuse: 
+                    loss_val = self.step_local_normed_diffuse(batch, kind='train')
                 else:
                     loss_val = self.step(batch, kind='test')
                 loss_temp = np.append(loss_temp, loss_val)

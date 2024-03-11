@@ -22,10 +22,33 @@ class pointwise_model(nn.Module):
             if i!=len(self.layers)-1:
                 x = nn.relu(x)
         return x
+
+class pointwise_model_diffuse(nn.Module):
+    features: Sequence[int]
+    bias: True
     
-def initialize_model(features, num_inputs, bias=True, random_key=0):
+    def setup(self):
+        # self.features = features
+        # self.bias = bias
+        self.layers = [nn.Dense(feat, use_bias=self.bias) for feat in self.features]
+        
+    def __call__(self, inputs):
+        x = inputs
+        for i, lyr in enumerate(self.layers):
+            x = lyr(x)
+            if i!=len(self.layers)-1:
+                x = nn.relu(x)
+        x = x.at[0].set( -nn.relu(x.at[0].get()) )
+        #print(x)
+        return x
     
-    model = pointwise_model(features = features, bias = bias)
+def initialize_model(features, num_inputs, bias=True, random_key=0, diffuse=False):
+
+    if diffuse: 
+        model = pointwise_model_diffuse(features = features, bias = bias)
+        print('Diffuse')
+    else:
+        model = pointwise_model(features = features, bias = bias)
     
     key1, key2 = random.split(random.PRNGKey(random_key))
     
@@ -63,6 +86,22 @@ def mse_local_norm(params, apply_fn, x_batched, y_batched, Psi_mag):
         return jnp.inner(y-pred, y-pred) / 2.0
     
     return jnp.nanmean(jax.vmap(squared_error)(x_batched, y_batched, Psi_mag), axis=0) # 0 is sample axis
+
+# def mse_local_norm_diffuse(params, apply_fn, x_batched, y_batched, Psi_mag, S_mag):
+    
+#     # Define squared loss for a single pair (x,y), where y can be a vector (multi-dim output) 
+#     def squared_error(x,y,Psi_mag, S_mag):
+#         pred = apply_fn(params, x) * Psi_mag
+#         #print(pred)
+#         print(pred.shape, S_mag.shape)
+#         print(jax.device_get(pred))
+#         #pred[0] =  - jnp.abs(pred[0])* S_mag
+#         #print(- jnp.abs(pred[0])* S_mag)
+#         pred = pred.at[...,0].set(- jnp.abs(pred.at[...,0].get())* S_mag)
+#         return jnp.inner(y-pred, y-pred) / 2.0
+    
+#     return jnp.nanmean(jax.vmap(squared_error)(x_batched, y_batched, Psi_mag, S_mag), axis=0) # 0 is sample axis
+
 
 def drop_nan(ds, var='uT'):
     return ds.where(~np.isnan(ds[var]), drop=True)

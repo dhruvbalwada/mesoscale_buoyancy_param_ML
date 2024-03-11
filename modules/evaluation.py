@@ -7,19 +7,21 @@ import PE_module
 import numpy as np
 
 def full_reader(model_nc, data_zarr, L, data_kind, exp_name, ML_name,Tsel=slice(-25, None), Tdim='Time',
-               windowed=False, window_size=None, local_norm=False, out_para_perp=False, dims_input = ['time', 'Z', 'YC', 'XC']):
+               windowed=False, window_size=None, local_norm=False, out_para_perp=False, dims_input = ['time', 'Z', 'YC', 'XC'], diffuse=False):
     '''
 
     '''
     eval_mod = EvaluationSystem()
 
-    eval_mod.read_model(model_nc)
+    eval_mod.read_model(model_nc, diffuse=diffuse)
+    
     if local_norm==False:
         eval_mod.get_model_norm_factors_ds()
 
     if local_norm & windowed: 
         print('Local normed and windowed')
-        eval_mod.read_eval_data_local_normed_windowed(data_zarr, data_kind, Lkey=L, window_size=window_size)
+        eval_mod.read_eval_data_local_normed_windowed(data_zarr, data_kind, Lkey=L, window_size=window_size, 
+                                                     out_para_perp=out_para_perp)
         eval_mod.eval_ds.datatree = eval_mod.eval_ds.datatree.isel({Tdim:Tsel})
         eval_mod.sel_time(Tsel, Tdim, local_norm=True)
         eval_mod.pred_local_norm_window(L, dims_input = dims_input)
@@ -102,7 +104,7 @@ class EvaluationSystem:
         self.output_ds = self.eval_ds.datatree[Lkey].ds[self.output_channels]
             
 
-    def read_eval_data_local_normed_windowed(self, data_bucket, data_kind, window_size=3, Lkey='50'):
+    def read_eval_data_local_normed_windowed(self, data_bucket, data_kind, window_size=3, Lkey='50', out_para_perp=False):
         if data_kind == 'MITgcm':
             self.eval_ds = datasets.MITgcm_all_transformer('-', '-', 
                                       input_channels=['U_x', 'U_y', 
@@ -110,13 +112,13 @@ class EvaluationSystem:
                                                       'Sx', 'Sy'])
 
             self.eval_ds.read_datatree(data_bucket, keep_filt_scale=True, window_size=window_size, sub_sample=False, 
-                                       largest_remove=False, Lkeys=[Lkey])
+                                       largest_remove=False, Lkeys=[Lkey], para_perp_out = out_para_perp)
         if data_kind == 'MOM6_P2L': 
             self.eval_ds = datasets.MOM6_all_transformer('_', 
                                                    '-', 
                                                    self.input_channels)
             self.eval_ds.read_datatree(data_bucket, keep_filt_scale=True, sub_sample=False, window_size=window_size,
-                                       largest_remove=False, large_filt=int(Lkey), Lkeys=[Lkey])
+                                       largest_remove=False, large_filt=int(Lkey), Lkeys=[Lkey], para_perp_out = out_para_perp)
         
         self.input_ds = self.eval_ds.datatree[Lkey].ds[self.input_channels]
         window_mid = int(self.eval_ds.window_size/2)
@@ -141,7 +143,7 @@ class EvaluationSystem:
     
     
     # Get ML model from weights for evaluation 
-    def read_model(self, model_nc_fname, local_norm=False):
+    def read_model(self, model_nc_fname, local_norm=False, diffuse=False):
         
         self.model_xr = xr.open_dataset(model_nc_fname) 
         self.local_norm=local_norm
@@ -149,8 +151,8 @@ class EvaluationSystem:
         self.input_channels = self.model_xr.attrs['input_channels']
         self.output_channels = self.model_xr.attrs['output_channels']
                                                    
-                                                   
-        self.ANN_model = ML_classes.ANN(shape = self.model_xr.shape, num_in = self.model_xr.num_in)
+        
+        self.ANN_model = ML_classes.ANN(shape = self.model_xr.shape, num_in = self.model_xr.num_in, diffuse=diffuse)
         
         self.regress_sys = ML_classes.RegressionSystem(self.ANN_model, self.local_norm)
         
@@ -443,4 +445,18 @@ class EvaluationSystem:
         Sfn_para_y = Sfn_para_scalar * Nhaty
 
         return Sfn_perp_x, Sfn_perp_y, Sfn_para_x, Sfn_para_y
+
+
+    def dissipative_prop(self, Sfnx='Sfnx', Sfny='Sfny', name='perp'):
+    
+        S_mag = self.input_ds.Sx**2 + self.input_ds.Sy**2
+        
+        self.output_ds['PE_diss_'+name] = self.input_ds.Sx*self.output_ds[Sfnx] + self.input_ds.Sy*self.output_ds[Sfny]
+        self.output_pred_ds['PE_diss_'+name] = self.input_ds.Sx*self.output_pred_ds[Sfnx] + self.input_ds.Sy*self.output_pred_ds[Sfny]
+        
+        #if norm==True:
+        #    return diss_true/S_mag#, diss_pred/S_mag
+        #else:
+        #    return diss_true
+
 
