@@ -94,10 +94,15 @@ class RegressionSystem:
         X_scale_mag = batch['Lfilt']*1e3
         X_vel_normed = X_vel/X_vel_mag
         X_S_normed = X_S/X_S_mag
+        
 
         psi_mag = jnp.asarray((X_vel_mag*X_S_mag*(X_scale_mag**2)).data.reshape(-1,1))
-        
-        X = jnp.asarray(xr.concat([X_vel_normed, X_S_normed], dim='variable').data)
+
+        if 'Lfilt' in self.input_channels:
+            X_L = batch[['Lfilt']].to_array().transpose(...,'variable')/400
+            X = jnp.asarray(xr.concat([X_vel_normed, X_S_normed, X_L], dim='variable').data)
+        else:
+            X = jnp.asarray(xr.concat([X_vel_normed, X_S_normed], dim='variable').data)
         y = jnp.asarray(batch[self.output_channels].to_array().transpose(...,'variable').data)
 
         loss_val, grads = self.criterion(self.state.params, self.state.apply_fn, X, y, psi_mag)
@@ -270,7 +275,7 @@ class RegressionSystem:
     def pred(self, X):
         return self.state.apply_fn(self.state.params, X)
 
-    def pred_local_normed(self, X): 
+    def pred_local_normed(self, X, input_channels=[]): 
         X_vel = X[['U_x', 'U_y','V_x', 'V_y']].to_array().transpose(...,'variable')
         X_S = X[['Sx', 'Sy']].to_array().transpose(...,'variable')
         X_vel_mag = ( (X_vel**2).mean('variable') )**0.5 + 1e-10
@@ -281,7 +286,11 @@ class RegressionSystem:
 
         psi_mag = jnp.asarray((X_vel_mag*X_S_mag*(X_scale_mag**2)).data[..., jnp.newaxis])
         
-        X_input = jnp.asarray(xr.concat([X_vel_normed, X_S_normed], dim='variable').data)
+        if 'Lfilt' in input_channels:
+            X_L = X[['Lfilt']].to_array().transpose(...,'variable')/400
+            X_input = jnp.asarray(xr.concat([X_vel_normed, X_S_normed, X_L], dim='variable').data)
+        else:
+            X_input = jnp.asarray(xr.concat([X_vel_normed, X_S_normed], dim='variable').data)
 
         return self.state.apply_fn(self.state.params, X_input) * psi_mag
 

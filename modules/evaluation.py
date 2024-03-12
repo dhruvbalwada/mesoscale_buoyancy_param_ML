@@ -107,9 +107,7 @@ class EvaluationSystem:
     def read_eval_data_local_normed_windowed(self, data_bucket, data_kind, window_size=3, Lkey='50', out_para_perp=False):
         if data_kind == 'MITgcm':
             self.eval_ds = datasets.MITgcm_all_transformer('-', '-', 
-                                      input_channels=['U_x', 'U_y', 
-                                                      'V_x', 'V_y', 
-                                                      'Sx', 'Sy'])
+                                      input_channels=self.input_channels)
 
             self.eval_ds.read_datatree(data_bucket, keep_filt_scale=True, window_size=window_size, sub_sample=False, 
                                        largest_remove=False, Lkeys=[Lkey], para_perp_out = out_para_perp)
@@ -207,7 +205,7 @@ class EvaluationSystem:
         #print(L)
         data = self.eval_ds.datatree[L].to_dataset()
         
-        y_pred = self.regress_sys.pred_local_normed(data)
+        y_pred = self.regress_sys.pred_local_normed(data, input_channels=self.input_channels)
 
         output_pred_ds = xr.Dataset()
         
