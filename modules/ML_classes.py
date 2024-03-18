@@ -99,10 +99,23 @@ class RegressionSystem:
         psi_mag = jnp.asarray((X_vel_mag*X_S_mag*(X_scale_mag**2)).data.reshape(-1,1))
 
         if 'Lfilt' in self.input_channels:
+                    
             X_L = batch[['Lfilt']].to_array().transpose(...,'variable')/400
-            X = jnp.asarray(xr.concat([X_vel_normed, X_S_normed, X_L], dim='variable').data)
+            if 'hx' in self.input_channels:
+                X_h = batch[['hx','hy']].to_array().transpose(...,'variable')/1e-3
+                X = jnp.asarray(xr.concat([X_vel_normed, X_S_normed, X_L, X_h], dim='variable').data)
+            else:
+                X = jnp.asarray(xr.concat([X_vel_normed, X_S_normed, X_L], dim='variable').data)
         else:
-            X = jnp.asarray(xr.concat([X_vel_normed, X_S_normed], dim='variable').data)
+            if 'hx' in self.input_channels:
+                X_h = batch[['hx','hy']].to_array().transpose(...,'variable')/1e-3
+                X = jnp.asarray(xr.concat([X_vel_normed, X_S_normed, X_h], dim='variable').data)
+            else:
+                X = jnp.asarray(xr.concat([X_vel_normed, X_S_normed], dim='variable').data)
+                
+            #X = jnp.asarray(xr.concat([X_vel_normed, X_S_normed], dim='variable').data)
+
+        
         y = jnp.asarray(batch[self.output_channels].to_array().transpose(...,'variable').data)
 
         loss_val, grads = self.criterion(self.state.params, self.state.apply_fn, X, y, psi_mag)
@@ -147,8 +160,12 @@ class RegressionSystem:
 
         psi_mag = jnp.asarray((X_vel_mag*X_S_mag*(X_scale_mag**2)).data.reshape(-1,1))
         #print(psi_mag.shape)
-        
-        X = jnp.asarray(xr.concat([X_vel_normed, X_S_normed], dim='input_features').data)
+        if 'Lfilt' in self.input_channels:
+            X_L = batch[['Lfilt']].isel(Xn = int(self.window_size/2), Yn = int(self.window_size/2)).to_stacked_array("input_features", sample_dims=['points']).transpose(...,'input_features')/400
+            X = jnp.asarray(xr.concat([X_vel_normed.drop_vars(['Xn','Yn']), X_S_normed.drop_vars(['Xn','Yn']), 
+           X_L.drop_vars(['input_features'])], dim='input_features').data)
+        else:
+            X = jnp.asarray(xr.concat([X_vel_normed, X_S_normed], dim='input_features').data)
         #print(X.shape)
         y = jnp.asarray(batch[self.output_channels].isel(Xn = int(self.window_size/2), Yn = int(self.window_size/2)
                                                                      ).to_stacked_array("output_features", sample_dims=['points']).data)
@@ -218,6 +235,7 @@ class RegressionSystem:
             loss_temp = np.array([])
             for batch in ML_data.bgen_train: 
                 if self.local_norm:
+                    #print('here')
                     loss_val = self.step_local_normed_windowed(batch, kind='train')
                     #print(loss_val)
                 else:
@@ -288,9 +306,19 @@ class RegressionSystem:
         
         if 'Lfilt' in input_channels:
             X_L = X[['Lfilt']].to_array().transpose(...,'variable')/400
-            X_input = jnp.asarray(xr.concat([X_vel_normed, X_S_normed, X_L], dim='variable').data)
+            if 'hx' in input_channels:
+                X_h = X[['hx','hy']].to_array().transpose(...,'variable')/1e-3
+                X_input = jnp.asarray(xr.concat([X_vel_normed, X_S_normed, X_L, X_h], dim='variable').data)
+            else:
+                X_input = jnp.asarray(xr.concat([X_vel_normed, X_S_normed, X_L], dim='variable').data)
         else:
-            X_input = jnp.asarray(xr.concat([X_vel_normed, X_S_normed], dim='variable').data)
+            if 'hx' in input_channels:
+                X_h = X[['hx','hy']].to_array().transpose(...,'variable')/1e-3
+                X_input = jnp.asarray(xr.concat([X_vel_normed, X_S_normed, X_h], dim='variable').data)
+            else:
+                X_input = jnp.asarray(xr.concat([X_vel_normed, X_S_normed], dim='variable').data)
+                
+            #X_input = jnp.asarray(xr.concat([X_vel_normed, X_S_normed], dim='variable').data)
 
         return self.state.apply_fn(self.state.params, X_input) * psi_mag
 

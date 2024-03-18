@@ -20,7 +20,8 @@ def full_reader(model_nc, data_zarr, L, data_kind, exp_name, ML_name,Tsel=slice(
 
     if local_norm & windowed: 
         print('Local normed and windowed')
-        eval_mod.read_eval_data_local_normed_windowed(data_zarr, data_kind, Lkey=L, window_size=window_size, 
+        eval_mod.read_eval_data_local_normed_windowed(data_zarr, data_kind, Lkey=L,
+                                                      window_size=window_size, 
                                                      out_para_perp=out_para_perp)
         eval_mod.eval_ds.datatree = eval_mod.eval_ds.datatree.isel({Tdim:Tsel})
         eval_mod.sel_time(Tsel, Tdim, local_norm=True)
@@ -89,7 +90,8 @@ class EvaluationSystem:
                                                    '-', 
                                                    self.input_channels)
             self.eval_ds.read_datatree(data_fname, keep_filt_scale=True, sub_sample=False, 
-                                       largest_remove=False, large_filt=int(Lkey), Lkeys=[Lkey], para_perp_out = out_para_perp)
+                                       largest_remove=False, large_filt=int(Lkey), Lkeys=[Lkey], 
+                                       para_perp_out = out_para_perp)
 
         if data_kind == 'MOM6_DG': 
             self.eval_ds = datasets.MOM6_all_transformer('_', 
@@ -98,7 +100,9 @@ class EvaluationSystem:
             self.eval_ds.read_datatree(data_fname, file_names='res5km/ml_data_', 
                                        keep_filt_scale=True, sub_sample=False, 
                                        largest_remove=False, large_filt=int(Lkey)/100,
-                                       H_mask=500, Lkeys=[Lkey])
+                                       H_mask=150, Lkeys=[Lkey], 
+                                       eta_bottom=True, 
+                                       para_perp_out = out_para_perp)
             
         self.input_ds = self.eval_ds.datatree[Lkey].ds[self.input_channels]
         self.output_ds = self.eval_ds.datatree[Lkey].ds[self.output_channels]
@@ -109,14 +113,40 @@ class EvaluationSystem:
             self.eval_ds = datasets.MITgcm_all_transformer('-', '-', 
                                       input_channels=self.input_channels)
 
-            self.eval_ds.read_datatree(data_bucket, keep_filt_scale=True, window_size=window_size, sub_sample=False, 
-                                       largest_remove=False, Lkeys=[Lkey], para_perp_out = out_para_perp)
+            self.eval_ds.read_datatree(data_bucket, 
+                                       keep_filt_scale=True, 
+                                       window_size=window_size, 
+                                       sub_sample=False, 
+                                       largest_remove=False, 
+                                       Lkeys=[Lkey], 
+                                       para_perp_out = out_para_perp)
         if data_kind == 'MOM6_P2L': 
             self.eval_ds = datasets.MOM6_all_transformer('_', 
                                                    '-', 
                                                    self.input_channels)
-            self.eval_ds.read_datatree(data_bucket, keep_filt_scale=True, sub_sample=False, window_size=window_size,
-                                       largest_remove=False, large_filt=int(Lkey), Lkeys=[Lkey], para_perp_out = out_para_perp)
+            self.eval_ds.read_datatree(data_bucket, 
+                                       keep_filt_scale=True, 
+                                       sub_sample=False, 
+                                       window_size=window_size,
+                                       largest_remove=False, 
+                                       large_filt=int(Lkey), 
+                                       Lkeys=[Lkey], 
+                                       para_perp_out = out_para_perp)
+        if data_kind == 'MOM6_DG': 
+            self.eval_ds = datasets.MOM6_all_transformer('_', 
+                                                   '-', 
+                                                   self.input_channels)
+            self.eval_ds.read_datatree(data_bucket, 
+                                       file_names='res5km/ml_data_', 
+                                       keep_filt_scale=True, 
+                                       para_perp_out = out_para_perp,
+                                       eta_bottom=True,
+                                       large_filt=int(Lkey)/100,
+                                       H_mask=150,
+                                       sub_sample=False, 
+                                       window_size=window_size,
+                                       largest_remove=False,  Lkeys=[Lkey] )
+            
         
         self.input_ds = self.eval_ds.datatree[Lkey].ds[self.input_channels]
         window_mid = int(self.eval_ds.window_size/2)

@@ -376,12 +376,15 @@ class MITgcm_all_transformer(MITgcm_transformer):
         
     
 class MOM6_transformer(base_transformer):
-    def transform_vars(self, choice=1, keep_filt_scale=False, para_perp_out=False):
+    def transform_vars(self, choice=1, keep_filt_scale=False, para_perp_out=False, eta_bottom=False):
         
         ds_temp = self.dataset.copy()
         
         ds_temp['Sx'] = ds_temp.slope_x.isel(zi=1)
         ds_temp['Sy'] = ds_temp.slope_y.isel(zi=1)
+
+        ds_temp['hx'] = ds_temp.slope_x.isel(zi=2)
+        ds_temp['hy'] = ds_temp.slope_y.isel(zi=2)
         #ds_test['Lfilt'] = ds_L.h.isel(zl=0)*0. + L
 
         # For the gradients we have some choices to make 
@@ -401,8 +404,12 @@ class MOM6_transformer(base_transformer):
 
         if para_perp_out:
             print('Out para perp')
+            
             ds_temp['Sfnx'] = ds_temp.uh_sg.isel(zl=1)
             ds_temp['Sfny'] = ds_temp.vh_sg.isel(zl=1)
+            if eta_bottom==True:
+                ds_temp['Sfnx'] = ds_temp.u2e1_sg
+                ds_temp['Sfny'] = ds_temp.v2e1_sg
             
             S_mag = (ds_temp.Sx * ds_temp.Sx + ds_temp.Sy * ds_temp.Sy)**0.5
         
@@ -423,6 +430,9 @@ class MOM6_transformer(base_transformer):
         else:
             ds_temp['Sfnx'] = ds_temp.uh_sg.isel(zl=1)
             ds_temp['Sfny'] = ds_temp.vh_sg.isel(zl=1)
+            if eta_bottom==True:
+                ds_temp['Sfnx'] = ds_temp.u2e1_sg
+                ds_temp['Sfny'] = ds_temp.v2e1_sg
         
         ds_temp['Lfilt'] = (float(self.L) + 0*ds_temp['Sx'])
 
@@ -534,7 +544,8 @@ class MOM6_transformer(base_transformer):
 class MOM6_all_transformer(MOM6_transformer):    
     def read_datatree(self, MOM6_bucket, file_names='res4km_sponge10day_long_ml_data_', 
                       largest_remove=True, H_mask=0, large_filt=400, keep_filt_scale=False, 
-                      sub_sample=True, Lkeys = ['50','100','200','400'], window_size=1, para_perp_out=False): 
+                      sub_sample=True, Lkeys = ['50','100','200','400'], window_size=1, para_perp_out=False,
+                     eta_bottom=False): 
 
         self.window_size = window_size
         self.Lkeys = Lkeys
@@ -543,7 +554,7 @@ class MOM6_all_transformer(MOM6_transformer):
             self.L = L
             self.file_path = f'{MOM6_bucket}{file_names}'+L+'km.zarr'
             self.read_dataset()
-            self.transform_vars(keep_filt_scale=keep_filt_scale, para_perp_out=para_perp_out)
+            self.transform_vars(keep_filt_scale=keep_filt_scale, para_perp_out=para_perp_out, eta_bottom=eta_bottom)
             self.mask_domain(H_mask)
             self.remove_boundary(largest_remove=largest_remove, large_filt=large_filt)
 
@@ -580,8 +591,8 @@ class MOM6_all_transformer(MOM6_transformer):
         self.ds_train = self.ds_train.dropna('points', subset=['Sfnx'])
         self.ds_test  = self.ds_test.dropna('points', subset=['Sfnx'])
         
-        npoints_train = len(self.ds_train['Sfnx'])
-        npoints_test = len(self.ds_test['Sfnx'])
+        npoints_train = len(self.ds_train['Sfnx'].points)
+        npoints_test = len(self.ds_test['Sfnx'].points)
         
         self.ds_train.load();
         self.ds_test.load();
