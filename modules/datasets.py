@@ -1,5 +1,5 @@
 import xarray as xr
-from datatree import open_datatree
+from datatree import open_datatree, DataTree
 import xgcm
 import helper_func as hf
 import xbatcher
@@ -7,6 +7,84 @@ import numpy as np
 from datatree import DataTree
 from datatree import open_datatree
 
+### --- General functions for reading xarray dataarrays and opening as datatrees
+
+def read_filt_dataset(exp_name='DG', scale='100'): 
+    '''
+    Read data prepared for ml using filtering
+    from zarr store and return xarray dataset object.
+    '''
+    MOM6_bucket = 'gs://leap-persistent/dhruvbalwada/MOM6/'
+    
+    if exp_name == 'DG': 
+        ml_start = 'Double_Gyre/res5km/ml_data_'
+        ml_end   = 'km_8_Aug_24.zarr'
+    elif exp_name == 'P2L': 
+        ml_start = 'Phillips2Layer/res4km_sponge10day_long_ml_data_'
+        ml_end   = 'km_8_Aug_24.zarr'
+        
+    fname = f'{MOM6_bucket}{ml_start}{scale}{ml_end}'
+    ds = xr.open_zarr(fname)
+
+    return ds
+
+def read_filt_datatree(exp_name=['DG'], scales = ['50','100','200','400']):
+    '''
+    Read data from multiple scales and experiments (or other properties) at once 
+    and expose using datatree.
+    Inputs:
+        exp_name : str or list of experiment names. 
+                    Probably best to use lists, so the experiment name is carried around. 
+        scales: list of experiment names
+    Note:
+        - Adding more layers will require a different algorithm for handling. 
+    '''
+    dtree_dict = {}
+
+    if isinstance(exp_name, str):
+        for L in scales:
+            dtree_dict[L] = read_filt_dataset(exp_name, L)
+            
+    elif isinstance(exp_name, list):
+        dtree_exp = {}
+        for exp in exp_name: 
+            
+            for L in scales:
+                dtree_exp[L] = read_filt_dataset(exp, L) 
+                
+            dtree_dict[exp] = DataTree.from_dict(dtree_exp)
+                
+    
+    return DataTree.from_dict(dtree_dict)
+
+
+### ------------ functions for manipulation of regular data 
+def calc_mags(dtree):
+    '''
+    Calculate various magnitudes and add them to each dataset in the DataTree.
+    '''
+    for exp_name in list(dtree.children):
+        exp_node = dtree[exp_name]
+        for scale_name in list(exp_node.children):
+            scale_node = exp_node[scale_name]
+            ds = scale_node
+            
+            # Compute magnitudes
+            magGradU = (ds.dudx**2 + ds.dudy**2 + ds.dvdx**2 + ds.dvdy**2)**0.5
+            magGradH = (ds.dhdx**2 + ds.dhdy**2)**0.5
+            magGradE = (ds.dedx**2 + ds.dedy**2)**0.5
+            magHFlux = (ds.uphp**2 + ds.vphp**2)**0.5
+            
+            # Add computed fields to the dataset
+            scale_node['magGradU'] = magGradU
+            scale_node['magGradH'] = magGradH
+            scale_node['magGradE'] = magGradE
+            scale_node['magHFlux'] = magHFlux
+
+    return dtree
+
+
+### ----- Classes and methods for ML related things Regular data -> training ready ML data 
 
 class base_transformer: 
     def __init__(self, 
@@ -33,7 +111,278 @@ class base_transformer:
         except Exception as e:
             print(f"Error reading dataset: {e}")
             
+    
+class MOM6_transformer(base_transformer):
+    def transform_vars(self, choice=1, keep_filt_scale=False, para_perp_out=False, eta_bottom=False):
+        
+        ds_temp = self.dataset.copy()
+        
+        ds_temp['Sx'] = ds_temp.slope_x.isel(zi=1)
+        ds_temp['Sy'] = ds_temp.slope_y.isel(zi=1)
+
+        ds_temp['hx'] = ds_temp.slope_x.isel(zi=2)
+        ds_temp['hy'] = ds_temp.slope_y.isel(zi=2)
+        #ds_test['Lfilt'] = ds_L.h.isel(zl=0)*0. + L
+
+        # For the gradients we have some choices to make 
+
+        #choice = 0 # 0 thickness weighted, 1 bottom layer, 2 top layer
+        # Choose 0, since that is what we are currently using in online sims
+        if choice == 0:
+            ds_temp['U_x'] = (ds_temp.dudx * ds_temp.h).sum('zl') / ds_temp.h.sum('zl')
+            ds_temp['U_y'] = (ds_temp.dudy * ds_temp.h).sum('zl') / ds_temp.h.sum('zl')
+            ds_temp['V_x'] = (ds_temp.dvdx * ds_temp.h).sum('zl') / ds_temp.h.sum('zl')
+            ds_temp['V_y'] = (ds_temp.dvdy * ds_temp.h).sum('zl') / ds_temp.h.sum('zl')
+        elif choice ==1: 
+            ds_temp['U_x'] = ds_temp.dudx.isel(zl=1)
+            ds_temp['U_y'] = ds_temp.dudy.isel(zl=1)
+            ds_temp['V_x'] = ds_temp.dvdx.isel(zl=1)
+            ds_temp['V_y'] = ds_temp.dvdy.isel(zl=1)
+
+        if para_perp_out:
+            print('Out para perp')
             
+            ds_temp['Sfnx'] = ds_temp.uh_sg.isel(zl=1)
+            ds_temp['Sfny'] = ds_temp.vh_sg.isel(zl=1)
+            if eta_bottom==True:
+                ds_temp['Sfnx'] = ds_temp.u2e1_sg
+                ds_temp['Sfny'] = ds_temp.v2e1_sg
+            
+            S_mag = (ds_temp.Sx * ds_temp.Sx + ds_temp.Sy * ds_temp.Sy)**0.5
+        
+            # Unit vector components in S direction
+            Shatx = ds_temp.Sx/S_mag
+            Shaty = ds_temp.Sy/S_mag
+        
+            # Unit vector components perp to S direction
+            Nhatx = - ds_temp.Sy/S_mag
+            Nhaty = ds_temp.Sx/S_mag
+
+            #ds_centered['Sfn_perp_scalar'] = (ds.Sfnx * Shatx + ds.Sfny * Shaty)
+            #ds_centered['Sfn_para_scalar'] = (ds.Sfnx * Nhatx + ds.Sfny * Nhaty)
+
+            # Being lazy I have rename things here such that now x represents component in direction of S 
+            ds_temp['Sfnx'] = (ds_temp.Sfnx * Shatx + ds_temp.Sfny * Shaty)
+            ds_temp['Sfny'] = (ds_temp.Sfnx * Nhatx + ds_temp.Sfny * Nhaty)
+        else:
+            ds_temp['Sfnx'] = ds_temp.uh_sg.isel(zl=1)
+            ds_temp['Sfny'] = ds_temp.vh_sg.isel(zl=1)
+            if eta_bottom==True:
+                ds_temp['Sfnx'] = ds_temp.u2e1_sg
+                ds_temp['Sfny'] = ds_temp.v2e1_sg
+        
+        ds_temp['Lfilt'] = (float(self.L) + 0*ds_temp['Sx'])
+
+        if keep_filt_scale==False: 
+            self.ML_dataset = xr.merge([ds_temp[self.output_channels], 
+                                        ds_temp[self.input_channels]])
+        else:
+            self.ML_dataset = xr.merge([ds_temp[self.output_channels], 
+                                        ds_temp[self.input_channels], 
+                                        ds_temp['Lfilt']])
+        
+        
+    def remove_boundary(self, largest_remove=True, large_filt = 400): 
+        
+        Ymin = self.ML_dataset.yh.min().values
+        Ymax = self.ML_dataset.yh.max().values
+        
+        if largest_remove:
+            self.ML_dataset = self.ML_dataset.sel(yh=slice((Ymin + large_filt),(Ymax - large_filt)))
+        else:
+            #self.ML_dataset = self.ML_dataset.sel(yh=slice( (Ymin + int(self.L)),(Ymax - int(self.L))))
+            self.ML_dataset = self.ML_dataset.sel(yh=slice((Ymin + large_filt),(Ymax - large_filt)))
+            
+    def mask_domain(self, H_mask=0): 
+        mask = self.dataset.h.isel(Time=0, zl=1)>=H_mask
+        self.ML_dataset = self.ML_dataset.where(mask)
+        
+    def subsample(self): 
+        sub_samp_fac = int(400/ int(self.L))
+        print('Subsampling')
+        self.ML_dataset = self.ML_dataset.isel( xh=slice(0, None, sub_samp_fac), 
+                                      yh=slice(0, None, sub_samp_fac) )
+       
+    def load_norm_factors(self, exp_name, ML_name='single'): 
+        path = '~/mesoscale_buoyancy_param_ML/normalize_factors/'
+        
+        if ML_name == 'single': 
+            try:
+                self.norm_factors = xr.open_dataset(path+exp_name+'_STD_'+str(self.L)+'_km.nc')
+                print('Loaded from saved norm nc for single scale.')
+            except: 
+                self.norm_factors = self.ML_dataset.isel(Time=slice(100, 200)).std()
+                self.norm_factors.compute()
+                self.norm_factors.to_netcdf(path+exp_name+'_STD_'+str(self.L)+'_km.nc')
+                print('Computed and saved norm nc')
+                
+        elif ML_name == 'all': 
+            try:
+                self.norm_factors = xr.open_dataset(path+exp_name+'_STD_'+str('all')+'_km.nc')
+                print('Loaded from saved norm nc for all')
+            except: 
+                print('Normalize factors for all are not saved. Run the ML training once for all to save these.')
+
+    def normalize(self):
+        self.ML_dataset_norm = hf.normalize_ds(self.ML_dataset, self.norm_factors) 
+        print('Normalized data')
+        
+    def convert_subsampled_normed(self, exp_name):
+        self.read_dataset()
+        self.transform_vars()
+        self.remove_boundary(largest_remove=True)
+        self.subsample()
+        self.load_norm_factors(exp_name)
+        self.normalize()
+    
+    def convert_normed(self, exp_name='P2L', ML_name='single', norm_factors=None, large_filt=400, mask_wall=False, H_mask=0):
+        self.read_dataset()
+        self.transform_vars()
+        self.remove_boundary(largest_remove=False, large_filt=large_filt)
+        if norm_factors is None: 
+            self.load_norm_factors(exp_name, ML_name) # to be used when training
+        else: 
+            self.norm_factors = norm_factors # to be used when evaluating
+        if mask_wall:
+            self.mask_domain(H_mask=H_mask)
+        self.normalize()
+        
+    def generate_test_train_batches(self): 
+        
+        nTime = len(self.ML_dataset_norm.Time)
+        
+        fac = .9
+        
+        self.ds_train = self.ML_dataset_norm.isel( Time=slice(0, int(fac*nTime)) ).stack(points=('Time','xh','yh'))
+        self.ds_test = self.ML_dataset_norm.isel( Time=slice(int(fac*nTime), None) ).stack(points=('Time','xh','yh'))
+        
+        print("loading")
+        self.ds_train.load();
+        self.ds_test.load();
+        
+        npoints_train = len(self.ds_train['Sfnx'])
+        npoints_test = len(self.ds_test['Sfnx'])
+        
+        self.ds_train = self.ds_train.isel(points=np.random.choice(npoints_train, size=npoints_train, replace=False))
+        
+        self.ds_test = self.ds_test.isel(points=np.random.choice(npoints_test, size=npoints_test, replace=False))
+        
+        self.bgen_train = xbatcher.BatchGenerator(ds = self.ds_train, 
+                               input_dims={},
+                               batch_dims={'points': int(npoints_train/37)}   )
+
+        self.bgen_test = xbatcher.BatchGenerator(ds = self.ds_test, 
+                               input_dims={},
+                               batch_dims={'points': int(npoints_test/5)}   )
+        
+        print('Test and train batches split. Number of batches: ' + str(len(self.bgen_train)) + '-' + str(len(self.bgen_test)) )
+        
+        
+class MOM6_all_transformer(MOM6_transformer):    
+
+    
+    def read_datatree(self, MOM6_bucket, file_names='res4km_sponge10day_long_ml_data_', 
+                      largest_remove=True, H_mask=0, large_filt=400, keep_filt_scale=False, 
+                      sub_sample=True, Lkeys = ['50','100','200','400'], window_size=1, para_perp_out=False,
+                     eta_bottom=False): 
+
+        self.window_size = window_size
+        self.Lkeys = Lkeys
+        dtree = {}
+        for L in self.Lkeys:
+            self.L = L
+            self.file_path = f'{MOM6_bucket}{file_names}'+L+'km.zarr'
+            self.read_dataset()
+            self.transform_vars(keep_filt_scale=keep_filt_scale, para_perp_out=para_perp_out, eta_bottom=eta_bottom)
+            self.mask_domain(H_mask)
+            self.remove_boundary(largest_remove=largest_remove, large_filt=large_filt)
+
+            if self.window_size>1: 
+                self.ML_dataset = self.ML_dataset.rolling({'xh': window_size, 'yh': window_size},
+                                                                     min_periods=1, 
+                                                                     center=True).construct(xh='Xn',yh='Yn')
+            
+            if sub_sample:
+                self.subsample()
+            
+            dtree[L] = self.ML_dataset.copy()
+        
+        self.datatree = DataTree.from_dict(dtree)
+        
+    def generate_test_train_batches(self, exp_name='P2L', normalize=True, input_dims={}): 
+        nTime = len(self.datatree['100'].Time)
+        
+        fac = .9
+        
+        self.ds_train = self.datatree.isel( Time=slice(0, int(fac*nTime)) )
+        self.ds_test = self.datatree.isel( Time=slice(int(fac*nTime), None) )
+        
+        if exp_name == 'P2L':
+            self.ds_train['50'] = self.ds_train['50'].isel(Time=slice(0, int(nTime*.6)))
+            self.ds_test['50'] = self.ds_test['50'].isel(Time=slice(0, int(nTime*.6)))
+        
+        self.ds_train = self.ds_train.stack(points=('Time','xh','yh'))
+        self.ds_test = self.ds_test.stack(points=('Time','xh','yh'))
+        
+        self.ds_train = self._concat_scales(self.ds_train)
+        self.ds_test = self._concat_scales(self.ds_test)
+        
+        self.ds_train = self.ds_train.dropna('points', subset=['Sfnx'])
+        self.ds_test  = self.ds_test.dropna('points', subset=['Sfnx'])
+        
+        npoints_train = len(self.ds_train['Sfnx'].points)
+        npoints_test = len(self.ds_test['Sfnx'].points)
+        
+        self.ds_train.load();
+        self.ds_test.load();
+        
+        self.ds_train = self.ds_train.isel(points=np.random.choice(npoints_train, size=npoints_train, replace=False))
+        self.ds_test  = self.ds_test.isel(points=np.random.choice(npoints_test, size=npoints_test, replace=False))
+
+        if normalize == True:
+            self.load_norm_factors(exp_name)
+            self.normalize()
+        
+        self.bgen_train = xbatcher.BatchGenerator(ds = self.ds_train, 
+                               input_dims=input_dims,
+                               batch_dims={'points': int(npoints_train/37)}   )
+
+        self.bgen_test = xbatcher.BatchGenerator(ds = self.ds_test, 
+                               input_dims=input_dims,
+                               batch_dims={'points': int(npoints_test/5)}   )
+        
+        print('Test and train batches split. Number of batches: ' + str(len(self.bgen_train)) + '-' + str(len(self.bgen_test)) )
+        
+    def normalize(self):
+        self.ds_train = self.ds_train/ self.norm_factors
+        self.ds_test = self.ds_test/ self.norm_factors
+        
+    def load_norm_factors(self, exp_name): 
+        path = '~/mesoscale_buoyancy_param_ML/normalize_factors/'
+        
+        try:
+            self.norm_factors = xr.open_dataset(path+exp_name+'_STD_'+str('all')+'_km.nc')
+            print('Loaded from saved norm nc for all.')
+
+        except: 
+            self.norm_factors = self.ds_train.std()
+            self.norm_factors.compute()
+            self.norm_factors.to_netcdf(path+exp_name+'_STD_'+str('all')+'_km.nc')
+            print('Computed and saved norm nc for all.')
+      
+        
+    @staticmethod    
+    def _concat_scales(ds):
+    
+        return xr.concat([ds['50'].to_dataset(),
+                          ds['100'].to_dataset(),
+                          ds['200'].to_dataset(),
+                          ds['400'].to_dataset()], 
+                                   dim='points')
+
+
+
+#### ---- Old code blocks
 class MITgcm_transformer(base_transformer): 
     
     def _center_dataset(self): 
@@ -364,273 +713,6 @@ class MITgcm_all_transformer(MITgcm_transformer):
             self.norm_factors.compute()
             self.norm_factors.to_netcdf(path+'MITgcm_STD_'+str('all')+'_km.nc')
             print('Computed and saved norm nc for all.')
-        
-    @staticmethod    
-    def _concat_scales(ds):
-    
-        return xr.concat([ds['50'].to_dataset(),
-                          ds['100'].to_dataset(),
-                          ds['200'].to_dataset(),
-                          ds['400'].to_dataset()], 
-                                   dim='points')
-        
-    
-class MOM6_transformer(base_transformer):
-    def transform_vars(self, choice=1, keep_filt_scale=False, para_perp_out=False, eta_bottom=False):
-        
-        ds_temp = self.dataset.copy()
-        
-        ds_temp['Sx'] = ds_temp.slope_x.isel(zi=1)
-        ds_temp['Sy'] = ds_temp.slope_y.isel(zi=1)
-
-        ds_temp['hx'] = ds_temp.slope_x.isel(zi=2)
-        ds_temp['hy'] = ds_temp.slope_y.isel(zi=2)
-        #ds_test['Lfilt'] = ds_L.h.isel(zl=0)*0. + L
-
-        # For the gradients we have some choices to make 
-
-        #choice = 0 # 0 thickness weighted, 1 bottom layer, 2 top layer
-        # Choose 0, since that is what we are currently using in online sims
-        if choice == 0:
-            ds_temp['U_x'] = (ds_temp.dudx * ds_temp.h).sum('zl') / ds_temp.h.sum('zl')
-            ds_temp['U_y'] = (ds_temp.dudy * ds_temp.h).sum('zl') / ds_temp.h.sum('zl')
-            ds_temp['V_x'] = (ds_temp.dvdx * ds_temp.h).sum('zl') / ds_temp.h.sum('zl')
-            ds_temp['V_y'] = (ds_temp.dvdy * ds_temp.h).sum('zl') / ds_temp.h.sum('zl')
-        elif choice ==1: 
-            ds_temp['U_x'] = ds_temp.dudx.isel(zl=1)
-            ds_temp['U_y'] = ds_temp.dudy.isel(zl=1)
-            ds_temp['V_x'] = ds_temp.dvdx.isel(zl=1)
-            ds_temp['V_y'] = ds_temp.dvdy.isel(zl=1)
-
-        if para_perp_out:
-            print('Out para perp')
-            
-            ds_temp['Sfnx'] = ds_temp.uh_sg.isel(zl=1)
-            ds_temp['Sfny'] = ds_temp.vh_sg.isel(zl=1)
-            if eta_bottom==True:
-                ds_temp['Sfnx'] = ds_temp.u2e1_sg
-                ds_temp['Sfny'] = ds_temp.v2e1_sg
-            
-            S_mag = (ds_temp.Sx * ds_temp.Sx + ds_temp.Sy * ds_temp.Sy)**0.5
-        
-            # Unit vector components in S direction
-            Shatx = ds_temp.Sx/S_mag
-            Shaty = ds_temp.Sy/S_mag
-        
-            # Unit vector components perp to S direction
-            Nhatx = - ds_temp.Sy/S_mag
-            Nhaty = ds_temp.Sx/S_mag
-
-            #ds_centered['Sfn_perp_scalar'] = (ds.Sfnx * Shatx + ds.Sfny * Shaty)
-            #ds_centered['Sfn_para_scalar'] = (ds.Sfnx * Nhatx + ds.Sfny * Nhaty)
-
-            # Being lazy I have rename things here such that now x represents component in direction of S 
-            ds_temp['Sfnx'] = (ds_temp.Sfnx * Shatx + ds_temp.Sfny * Shaty)
-            ds_temp['Sfny'] = (ds_temp.Sfnx * Nhatx + ds_temp.Sfny * Nhaty)
-        else:
-            ds_temp['Sfnx'] = ds_temp.uh_sg.isel(zl=1)
-            ds_temp['Sfny'] = ds_temp.vh_sg.isel(zl=1)
-            if eta_bottom==True:
-                ds_temp['Sfnx'] = ds_temp.u2e1_sg
-                ds_temp['Sfny'] = ds_temp.v2e1_sg
-        
-        ds_temp['Lfilt'] = (float(self.L) + 0*ds_temp['Sx'])
-
-        if keep_filt_scale==False: 
-            self.ML_dataset = xr.merge([ds_temp[self.output_channels], 
-                                        ds_temp[self.input_channels]])
-        else:
-            self.ML_dataset = xr.merge([ds_temp[self.output_channels], 
-                                        ds_temp[self.input_channels], 
-                                        ds_temp['Lfilt']])
-        
-        
-    def remove_boundary(self, largest_remove=True, large_filt = 400): 
-        
-        Ymin = self.ML_dataset.yh.min().values
-        Ymax = self.ML_dataset.yh.max().values
-        
-        if largest_remove:
-            self.ML_dataset = self.ML_dataset.sel(yh=slice((Ymin + large_filt),(Ymax - large_filt)))
-        else:
-            #self.ML_dataset = self.ML_dataset.sel(yh=slice( (Ymin + int(self.L)),(Ymax - int(self.L))))
-            self.ML_dataset = self.ML_dataset.sel(yh=slice((Ymin + large_filt),(Ymax - large_filt)))
-            
-    def mask_domain(self, H_mask=0): 
-        mask = self.dataset.h.isel(Time=0, zl=1)>=H_mask
-        self.ML_dataset = self.ML_dataset.where(mask)
-        
-    def subsample(self): 
-        sub_samp_fac = int(400/ int(self.L))
-        print('Subsampling')
-        self.ML_dataset = self.ML_dataset.isel( xh=slice(0, None, sub_samp_fac), 
-                                      yh=slice(0, None, sub_samp_fac) )
-       
-    def load_norm_factors(self, exp_name, ML_name='single'): 
-        path = '~/mesoscale_buoyancy_param_ML/normalize_factors/'
-        
-        if ML_name == 'single': 
-            try:
-                self.norm_factors = xr.open_dataset(path+exp_name+'_STD_'+str(self.L)+'_km.nc')
-                print('Loaded from saved norm nc for single scale.')
-            except: 
-                self.norm_factors = self.ML_dataset.isel(Time=slice(100, 200)).std()
-                self.norm_factors.compute()
-                self.norm_factors.to_netcdf(path+exp_name+'_STD_'+str(self.L)+'_km.nc')
-                print('Computed and saved norm nc')
-                
-        elif ML_name == 'all': 
-            try:
-                self.norm_factors = xr.open_dataset(path+exp_name+'_STD_'+str('all')+'_km.nc')
-                print('Loaded from saved norm nc for all')
-            except: 
-                print('Normalize factors for all are not saved. Run the ML training once for all to save these.')
-
-    def normalize(self):
-        self.ML_dataset_norm = hf.normalize_ds(self.ML_dataset, self.norm_factors) 
-        print('Normalized data')
-        
-    def convert_subsampled_normed(self, exp_name):
-        self.read_dataset()
-        self.transform_vars()
-        self.remove_boundary(largest_remove=True)
-        self.subsample()
-        self.load_norm_factors(exp_name)
-        self.normalize()
-    
-    def convert_normed(self, exp_name='P2L', ML_name='single', norm_factors=None, large_filt=400, mask_wall=False, H_mask=0):
-        self.read_dataset()
-        self.transform_vars()
-        self.remove_boundary(largest_remove=False, large_filt=large_filt)
-        if norm_factors is None: 
-            self.load_norm_factors(exp_name, ML_name) # to be used when training
-        else: 
-            self.norm_factors = norm_factors # to be used when evaluating
-        if mask_wall:
-            self.mask_domain(H_mask=H_mask)
-        self.normalize()
-        
-    def generate_test_train_batches(self): 
-        
-        nTime = len(self.ML_dataset_norm.Time)
-        
-        fac = .9
-        
-        self.ds_train = self.ML_dataset_norm.isel( Time=slice(0, int(fac*nTime)) ).stack(points=('Time','xh','yh'))
-        self.ds_test = self.ML_dataset_norm.isel( Time=slice(int(fac*nTime), None) ).stack(points=('Time','xh','yh'))
-        
-        print("loading")
-        self.ds_train.load();
-        self.ds_test.load();
-        
-        npoints_train = len(self.ds_train['Sfnx'])
-        npoints_test = len(self.ds_test['Sfnx'])
-        
-        self.ds_train = self.ds_train.isel(points=np.random.choice(npoints_train, size=npoints_train, replace=False))
-        
-        self.ds_test = self.ds_test.isel(points=np.random.choice(npoints_test, size=npoints_test, replace=False))
-        
-        self.bgen_train = xbatcher.BatchGenerator(ds = self.ds_train, 
-                               input_dims={},
-                               batch_dims={'points': int(npoints_train/37)}   )
-
-        self.bgen_test = xbatcher.BatchGenerator(ds = self.ds_test, 
-                               input_dims={},
-                               batch_dims={'points': int(npoints_test/5)}   )
-        
-        print('Test and train batches split. Number of batches: ' + str(len(self.bgen_train)) + '-' + str(len(self.bgen_test)) )
-        
-        
-class MOM6_all_transformer(MOM6_transformer):    
-    def read_datatree(self, MOM6_bucket, file_names='res4km_sponge10day_long_ml_data_', 
-                      largest_remove=True, H_mask=0, large_filt=400, keep_filt_scale=False, 
-                      sub_sample=True, Lkeys = ['50','100','200','400'], window_size=1, para_perp_out=False,
-                     eta_bottom=False): 
-
-        self.window_size = window_size
-        self.Lkeys = Lkeys
-        dtree = {}
-        for L in self.Lkeys:
-            self.L = L
-            self.file_path = f'{MOM6_bucket}{file_names}'+L+'km.zarr'
-            self.read_dataset()
-            self.transform_vars(keep_filt_scale=keep_filt_scale, para_perp_out=para_perp_out, eta_bottom=eta_bottom)
-            self.mask_domain(H_mask)
-            self.remove_boundary(largest_remove=largest_remove, large_filt=large_filt)
-
-            if self.window_size>1: 
-                self.ML_dataset = self.ML_dataset.rolling({'xh': window_size, 'yh': window_size},
-                                                                     min_periods=1, 
-                                                                     center=True).construct(xh='Xn',yh='Yn')
-            
-            if sub_sample:
-                self.subsample()
-            
-            dtree[L] = self.ML_dataset.copy()
-        
-        self.datatree = DataTree.from_dict(dtree)
-        
-    def generate_test_train_batches(self, exp_name='P2L', normalize=True, input_dims={}): 
-        nTime = len(self.datatree['100'].Time)
-        
-        fac = .9
-        
-        self.ds_train = self.datatree.isel( Time=slice(0, int(fac*nTime)) )
-        self.ds_test = self.datatree.isel( Time=slice(int(fac*nTime), None) )
-        
-        if exp_name == 'P2L':
-            self.ds_train['50'] = self.ds_train['50'].isel(Time=slice(0, int(nTime*.6)))
-            self.ds_test['50'] = self.ds_test['50'].isel(Time=slice(0, int(nTime*.6)))
-        
-        self.ds_train = self.ds_train.stack(points=('Time','xh','yh'))
-        self.ds_test = self.ds_test.stack(points=('Time','xh','yh'))
-        
-        self.ds_train = self._concat_scales(self.ds_train)
-        self.ds_test = self._concat_scales(self.ds_test)
-        
-        self.ds_train = self.ds_train.dropna('points', subset=['Sfnx'])
-        self.ds_test  = self.ds_test.dropna('points', subset=['Sfnx'])
-        
-        npoints_train = len(self.ds_train['Sfnx'].points)
-        npoints_test = len(self.ds_test['Sfnx'].points)
-        
-        self.ds_train.load();
-        self.ds_test.load();
-        
-        self.ds_train = self.ds_train.isel(points=np.random.choice(npoints_train, size=npoints_train, replace=False))
-        self.ds_test  = self.ds_test.isel(points=np.random.choice(npoints_test, size=npoints_test, replace=False))
-
-        if normalize == True:
-            self.load_norm_factors(exp_name)
-            self.normalize()
-        
-        self.bgen_train = xbatcher.BatchGenerator(ds = self.ds_train, 
-                               input_dims=input_dims,
-                               batch_dims={'points': int(npoints_train/37)}   )
-
-        self.bgen_test = xbatcher.BatchGenerator(ds = self.ds_test, 
-                               input_dims=input_dims,
-                               batch_dims={'points': int(npoints_test/5)}   )
-        
-        print('Test and train batches split. Number of batches: ' + str(len(self.bgen_train)) + '-' + str(len(self.bgen_test)) )
-        
-    def normalize(self):
-        self.ds_train = self.ds_train/ self.norm_factors
-        self.ds_test = self.ds_test/ self.norm_factors
-        
-    def load_norm_factors(self, exp_name): 
-        path = '~/mesoscale_buoyancy_param_ML/normalize_factors/'
-        
-        try:
-            self.norm_factors = xr.open_dataset(path+exp_name+'_STD_'+str('all')+'_km.nc')
-            print('Loaded from saved norm nc for all.')
-
-        except: 
-            self.norm_factors = self.ds_train.std()
-            self.norm_factors.compute()
-            self.norm_factors.to_netcdf(path+exp_name+'_STD_'+str('all')+'_km.nc')
-            print('Computed and saved norm nc for all.')
-      
         
     @staticmethod    
     def _concat_scales(ds):
