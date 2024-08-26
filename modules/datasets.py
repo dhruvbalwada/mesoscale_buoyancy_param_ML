@@ -9,11 +9,20 @@ from datatree import open_datatree
 
 ### --- General functions for reading xarray dataarrays and opening as datatrees
 
-def read_filt_dataset(exp_name='DG', scale='100'): 
+def read_filtered_dataset(exp_name='DG', scale='100', assign_attrs=True): 
     '''
     Read data prepared for ml using filtering
     from zarr store and return xarray dataset object.
+    
+    Parameters:
+    - exp_name: Name of the experiment ('DG' or 'P2L').
+    - scale: Resolution scale to load (e.g., '100').
+    - assign_attrs: Boolean to determine whether to assign attributes to the dataset.
+    
+    Returns:
+    - ds: xarray dataset object with optional attributes assigned.
     '''
+    
     MOM6_bucket = 'gs://leap-persistent/dhruvbalwada/MOM6/'
     
     if exp_name == 'DG': 
@@ -25,10 +34,36 @@ def read_filt_dataset(exp_name='DG', scale='100'):
         
     fname = f'{MOM6_bucket}{ml_start}{scale}{ml_end}'
     ds = xr.open_zarr(fname)
-
+    
+    if assign_attrs:
+        # Example attributes to assign
+        ds.attrs['simulation_name'] = exp_name
+        ds.attrs['filter_scale'] = scale
+        ds.attrs['source'] = fname
+        ds.attrs['description'] = f"Dataset for {exp_name} experiment at {scale} km resolution"
+    
     return ds
+    
+# def read_filtered_dataset(exp_name='DG', scale='100'): 
+#     '''
+#     Read data prepared for ml using filtering
+#     from zarr store and return xarray dataset object.
+#     '''
+#     MOM6_bucket = 'gs://leap-persistent/dhruvbalwada/MOM6/'
+    
+#     if exp_name == 'DG': 
+#         ml_start = 'Double_Gyre/res5km/ml_data_'
+#         ml_end   = 'km_8_Aug_24.zarr'
+#     elif exp_name == 'P2L': 
+#         ml_start = 'Phillips2Layer/res4km_sponge10day_long_ml_data_'
+#         ml_end   = 'km_8_Aug_24.zarr'
+        
+#     fname = f'{MOM6_bucket}{ml_start}{scale}{ml_end}'
+#     ds = xr.open_zarr(fname)
 
-def read_filt_datatree(exp_name=['DG'], scales = ['50','100','200','400']):
+#     return ds
+
+def read_filtered_datatree(exp_name=['DG'], scales = ['50','100','200','400']):
     '''
     Read data from multiple scales and experiments (or other properties) at once 
     and expose using datatree.
@@ -43,14 +78,14 @@ def read_filt_datatree(exp_name=['DG'], scales = ['50','100','200','400']):
 
     if isinstance(exp_name, str):
         for L in scales:
-            dtree_dict[L] = read_filt_dataset(exp_name, L)
+            dtree_dict[L] = read_filtered_dataset(exp_name, L)
             
     elif isinstance(exp_name, list):
         dtree_exp = {}
         for exp in exp_name: 
             
             for L in scales:
-                dtree_exp[L] = read_filt_dataset(exp, L) 
+                dtree_exp[L] = read_filtered_dataset(exp, L) 
                 
             dtree_dict[exp] = DataTree.from_dict(dtree_exp)
                 
@@ -59,32 +94,282 @@ def read_filt_datatree(exp_name=['DG'], scales = ['50','100','200','400']):
 
 
 ### ------------ functions for manipulation of regular data 
-def calc_mags(dtree):
+def calculate_magnitudes(dtree):
     '''
     Calculate various magnitudes and add them to each dataset in the DataTree.
     '''
-    for exp_name in list(dtree.children):
-        exp_node = dtree[exp_name]
-        for scale_name in list(exp_node.children):
-            scale_node = exp_node[scale_name]
-            ds = scale_node
+
+    dtree = dtree.map_over_subtree(lambda ds: ds.assign(magGradU = (ds.dudx**2 + ds.dudy**2 + ds.dvdx**2 + ds.dvdy**2)**0.5))
+    dtree = dtree.map_over_subtree(lambda ds: ds.assign(magGradH = (ds.dhdx**2 + ds.dhdy**2)**0.5))
+    dtree = dtree.map_over_subtree(lambda ds: ds.assign(magGradE = (ds.dedx**2 + ds.dedy**2)**0.5))
+    dtree = dtree.map_over_subtree(lambda ds: ds.assign(magHFlux = (ds.uphp**2 + ds.vphp**2)**0.5))
+    
+    # The map_over_subtree magically replaces the loop below.
+    
+    # for exp_name in list(dtree.children):
+    #     exp_node = dtree[exp_name]
+    #     for scale_name in list(exp_node.children):
+    #         scale_node = exp_node[scale_name]
+    #         ds = scale_node
             
-            # Compute magnitudes
-            magGradU = (ds.dudx**2 + ds.dudy**2 + ds.dvdx**2 + ds.dvdy**2)**0.5
-            magGradH = (ds.dhdx**2 + ds.dhdy**2)**0.5
-            magGradE = (ds.dedx**2 + ds.dedy**2)**0.5
-            magHFlux = (ds.uphp**2 + ds.vphp**2)**0.5
+    #         # Compute magnitudes
+    #         magGradU = (ds.dudx**2 + ds.dudy**2 + ds.dvdx**2 + ds.dvdy**2)**0.5
+    #         magGradH = (ds.dhdx**2 + ds.dhdy**2)**0.5
+    #         magGradE = (ds.dedx**2 + ds.dedy**2)**0.5
+    #         magHFlux = (ds.uphp**2 + ds.vphp**2)**0.5
             
-            # Add computed fields to the dataset
-            scale_node['magGradU'] = magGradU
-            scale_node['magGradH'] = magGradH
-            scale_node['magGradE'] = magGradE
-            scale_node['magHFlux'] = magHFlux
+    #         # Add computed fields to the dataset
+    #         scale_node['magGradU'] = magGradU
+    #         scale_node['magGradH'] = magGradH
+    #         scale_node['magGradE'] = magGradE
+    #         scale_node['magHFlux'] = magHFlux
 
     return dtree
 
 
 ### ----- Classes and methods for ML related things Regular data -> training ready ML data 
+
+class MLDataset():
+    """
+    A class to extract a machine learning dataset from a set of simulation datasets. 
+
+    Attributes: 
+
+    Methods:
+    
+    """
+    def __init__(self,
+                 simulation_names = ['DG','P2L'],
+                 filter_scales    = ['50','100','200','400'], 
+                 input_variables  = ['dudx','dvdx','dudy','dvdy','dhdx','dhdy'],
+                 output_variables = ['uphp','vphp'],
+                 use_mask         = True):
+
+        self.simulation_names = simulation_names
+        self.filter_scales = filter_scales
+        
+        self.LARGEST_FILTER_SCALE = int(self.filter_scales[-1])
+
+        self.input_variables = input_variables
+        self.output_variables = output_variables
+        self.use_mask = use_mask
+        # reserve input_channels for what actually goes into ML model,
+        # there can be cases where variables and channels have slight differences 
+        # e.g when stencil is wider (there might be other use cases too).
+
+        # Do some method calls in init, which we think will be common across.
+        self.load_simulation_data()
+        #self.choose_ml_variables()
+        
+
+    def load_simulation_data(self):
+        '''
+        Open up simulaiton data as a DataTree
+        '''
+        try: 
+            self.simulation_data = read_filtered_datatree(self.simulation_names,
+                                                  self.filter_scales)
+            
+        except:
+            print("Error reading simulation data")
+            
+        if self.use_mask:
+                self.generate_h_mask()
+                self.input_variables.append('h_mask')
+                self.output_variables.append('h_mask')
+
+
+    # Pre-processing methods
+    ## These apply to individual datasets, which sit at end nodes of datatree. 
+
+    def generate_h_mask(self, thin_limit = 5, thickness_variable='hbar'): 
+        '''
+        Often we need a thickness based mask :
+            Don't consider points where the thickness is too small.
+        '''
+        self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(h_mask = (n[thickness_variable]>= thin_limit) ))
+                                                                     
+        
+    def choose_ml_variables(self):
+        '''
+        Select input and output variables, to be operated on going forward. 
+        '''
+        
+        self.ml_input_dataset = self.simulation_data.map_over_subtree(lambda n: n[self.input_variables])
+        self.ml_output_dataset = self.simulation_data.map_over_subtree(lambda n: n[self.output_variables])
+        # This process of choosing subset from datatree is based on the discussion from this issue
+        # https://github.com/xarray-contrib/datatree/issues/79 
+        # Eventually if a subset function is introduced, the map_over_subtree can be removed.
+
+    def add_ml_variables(self, add_filter_scale=True, add_mask=True):
+        '''
+        To add variables that don't already exist in the dataset.
+        Examples can be length scales, or some grid related variable.
+        '''
+        # Add length scales
+        if add_filter_scale:
+            self.ml_input_dataset = self.ml_input_dataset.map_over_subtree(lambda n: n.assign(filter_scale = float(n.attrs['filter_scale'])*1e3 + 0.*n.dudx))
+
+        # if add_mask:
+        #     self.ml_input_dataset = self.ml_input_dataset.map_over_subtree(lambda n: n.assign(h_mask = 
+            
+        
+    
+    def create_wider_stencil(self, variables_to_widen=['dudx','dvdx','dudy','dvdy','dhdx','dhdy'], window_size=3, not_replace=True):
+        '''
+        Add a stencil of specified size around the prediction point for selected variables in the dataset.
+    
+        This method applies a rolling window operation to a subset of variables in each dataset node, creating a stencil 
+        (e.g., 3x3, 5x5) around the prediction point. The method allows the user to either replace the original variables 
+        with their widened versions or retain the original variables while adding the widened versions with modified names.
+    
+        Parameters:
+        -----------
+        variables_to_widen : list of str, optional
+            A list of variable names to which the stencil operation will be applied. These variables will be 
+            rolled over the specified window size. The default list includes 'dudx', 'dvdx', 'dudy', 'dvdy', 
+            'dhdx', and 'dhdy'.
+        
+        window_size : int, optional
+            The size of the rolling window to apply around the prediction point. The default value is 3, 
+            which creates a 3x3 stencil.
+    
+        not_replace : bool, optional
+            If True (default), the widened variables will be renamed with the suffix '_widened' to avoid 
+            overwriting the original variables. If False, the original variables will be replaced with 
+            their widened versions.
+        '''
+        
+        def widen_stencil(n): 
+            # Apply rolling and construct on the variables_to_widen
+            widened = n[variables_to_widen].rolling(xh=window_size, yh=window_size, 
+                                                    min_periods=1, center=True).construct(xh='Xn', yh='Yn')
+
+            if not_replace:                
+            # Rename the widened variables to avoid overwriting
+                widened = widened.rename({var: f"{var}_widened" for var in variables_to_widen})
+            
+            # Merge the widened variables with the original dataset
+            combined = xr.merge([widened, n], compat='override')
+            #combined= widened
+
+            return combined
+
+        self.ml_input_dataset = self.ml_input_dataset.map_over_subtree(widen_stencil)
+
+    
+    def subsample_horizontally(self): 
+        '''
+        To maintain uniformity in data size we need to sub-sample the simulations with finer filter scales.
+        '''
+        def subsample_by_filter_scale(n):
+            
+            subsample_factor = int(self.LARGEST_FILTER_SCALE/float(n.attrs['filter_scale']))
+
+            return n.isel(xh=slice(0, None, subsample_factor), 
+                          yh=slice(0, None, subsample_factor))
+                               
+        self.ml_input_dataset  = self.ml_input_dataset.map_over_subtree(subsample_by_filter_scale)
+        self.ml_output_dataset = self.ml_output_dataset.map_over_subtree(subsample_by_filter_scale)
+                                                                       
+
+    def h_mask_ml_variables(self):
+        '''
+        Mask as ml_variables using thickness masks.
+        '''
+        def only_h_mask_data_variables(n):
+            n_masked = n.copy()
+            
+            for var in n.data_vars:
+                if var != 'h_mask':
+                    n_masked[var] = n[var].where(n['h_mask'])
+            
+            return n_masked
+            
+        if self.use_mask:
+            self.ml_input_dataset = self.ml_input_dataset.map_over_subtree(only_h_mask_data_variables)
+            self.ml_output_dataset = self.ml_output_dataset.map_over_subtree(only_h_mask_data_variables)
+        else:
+            raise ValueError("use_mask flag is not set to true.")
+        
+    def rotate_frame(self):
+        '''
+        Rotate variables from x-y coordinates to a flow dependent coordinate. 
+        '''
+        
+        def rotate_vector():
+            pass
+        def rotate_tensor():
+            pass
+            
+        
+    def nondimensionalize():
+        '''
+        Non-dimensionalize input and output variables
+        '''
+        pass
+
+    
+    def scale_normalize():
+        '''
+        Do some scale normalization using fixed constants, to make everything order 1. 
+        '''
+
+        pass
+
+
+    # Pre-processing pipeline methods
+    ## Depending on the model the pre processing pipeline may be slightly different, the function below handles this.
+    ## Also apply to datasets
+    
+    def default_preprocess_pipeline(self, window_size=1): 
+        
+        '''
+        Some set of default operations read in as a list and done on data to pre-process. 
+        Takes in simulation_data -> ml_data
+        Note:
+            This function can be customized for different models. 
+        '''
+        # The pipeline that is emerging is:
+        ## 
+        
+        self.choose_ml_variables()
+        self.add_ml_variables()
+        self.create_wider_stencil(window_size=window_size, not_replace=True)
+        self.subsample_horizontally()
+        self.h_mask_ml_variables()
+        
+
+
+    
+    # ML dataset setup pipelines
+    ## These will work with datatree.
+    def split_train_test_data(self):
+        '''
+        Split data into training and testing sets
+        '''
+
+        pass
+
+    def generate_batches(self):
+        '''
+        Generate batches with some prescribed size. 
+        '''
+        pass
+        
+    def stack_physical_dimensions(self):
+        pass 
+
+    
+    def concat_datatree_nodes(self):
+
+        pass
+        
+
+
+        
+
+### --- Older data classes --- 
 
 class base_transformer: 
     def __init__(self, 
@@ -289,6 +574,7 @@ class MOM6_all_transformer(MOM6_transformer):
         self.window_size = window_size
         self.Lkeys = Lkeys
         dtree = {}
+        
         for L in self.Lkeys:
             self.L = L
             self.file_path = f'{MOM6_bucket}{file_names}'+L+'km.zarr'
