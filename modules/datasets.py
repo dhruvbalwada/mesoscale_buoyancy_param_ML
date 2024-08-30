@@ -72,7 +72,7 @@ def read_filtered_datatree(exp_name=['DG'], scales = ['50','100','200','400']):
                     Probably best to use lists, so the experiment name is carried around. 
         scales: list of experiment names
     Note:
-        - Adding more layers will require a different algorithm for handling. 
+        - Adding more data form (e.g. FGR etc) will require a different algorithm for handling. 
     '''
     dtree_dict = {}
 
@@ -129,7 +129,7 @@ def calculate_magnitudes(dtree):
 
 ### ----- Classes and methods for ML related things Regular data -> training ready ML data 
 
-class MLDataset():
+class SimulationData():
     """
     A class to extract a machine learning dataset from a set of simulation datasets. 
 
@@ -140,19 +140,12 @@ class MLDataset():
     """
     def __init__(self,
                  simulation_names = ['DG','P2L'],
-                 filter_scales    = ['50','100','200','400'], 
-                 input_variables  = ['dudx','dvdx','dudy','dvdy','dhdx','dhdy'],
-                 output_variables = ['uphp','vphp'],
-                 use_mask         = True):
+                 filter_scales    = ['50','100','200','400'] ):
 
         self.simulation_names = simulation_names
         self.filter_scales = filter_scales
         
-        self.LARGEST_FILTER_SCALE = int(self.filter_scales[-1])
-
-        self.input_variables = input_variables
-        self.output_variables = output_variables
-        self.use_mask = use_mask
+        
         # reserve input_channels for what actually goes into ML model,
         # there can be cases where variables and channels have slight differences 
         # e.g when stencil is wider (there might be other use cases too).
@@ -169,16 +162,10 @@ class MLDataset():
         try: 
             self.simulation_data = read_filtered_datatree(self.simulation_names,
                                                   self.filter_scales)
-            
         except:
             print("Error reading simulation data")
             
-        if self.use_mask:
-                self.generate_h_mask()
-                self.input_variables.append('h_mask')
-                self.output_variables.append('h_mask')
-
-
+ 
     # Pre-processing methods
     ## These apply to individual datasets, which sit at end nodes of datatree. 
 
@@ -189,26 +176,19 @@ class MLDataset():
         '''
         self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(h_mask = (n[thickness_variable]>= thin_limit) ))
                                                                      
-        
-    def choose_ml_variables(self):
-        '''
-        Select input and output variables, to be operated on going forward. 
-        '''
-        
-        self.ml_input_dataset = self.simulation_data.map_over_subtree(lambda n: n[self.input_variables])
-        self.ml_output_dataset = self.simulation_data.map_over_subtree(lambda n: n[self.output_variables])
-        # This process of choosing subset from datatree is based on the discussion from this issue
-        # https://github.com/xarray-contrib/datatree/issues/79 
-        # Eventually if a subset function is introduced, the map_over_subtree can be removed.
 
-    def add_ml_variables(self, add_filter_scale=True, add_mask=True):
+    def add_variables(self, add_filter_scale=True, add_mask=True):
         '''
         To add variables that don't already exist in the dataset.
         Examples can be length scales, or some grid related variable.
         '''
         # Add length scales
+        if add_mask:
+            self.generate_h_mask()
+            
         if add_filter_scale:
-            self.ml_input_dataset = self.ml_input_dataset.map_over_subtree(lambda n: n.assign(filter_scale = float(n.attrs['filter_scale'])*1e3 + 0.*n.dudx))
+            #self.ml_input_dataset = self.ml_input_dataset.map_over_subtree(lambda n: n.assign(filter_scale = float(n.attrs['filter_scale'])*1e3 + 0.*n.dudx))
+            self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(filter_scale = float(n.attrs['filter_scale'])*1e3 + 0.*n.dudx))
 
         # if add_mask:
         #     self.ml_input_dataset = self.ml_input_dataset.map_over_subtree(lambda n: n.assign(h_mask = 
@@ -255,10 +235,182 @@ class MLDataset():
 
             return combined
 
-        self.ml_input_dataset = self.ml_input_dataset.map_over_subtree(widen_stencil)
+        #self.ml_input_dataset = self.ml_input_dataset.map_over_subtree(widen_stencil)
+        self.simulation_data = self.simulation_data.map_over_subtree(widen_stencil)
 
+       
+    def rotate_frame(self, frame_vector_vars = ['dhdx','dhdy'], ):
+        '''
+        Rotate variables from x-y coordinates to a flow dependent coordinate. 
+
+        frame_vector_vars: Names of the vectors that will be used to rotate the frame. 
+        
+        '''
+        
+        
+        def rotate_vector(R_11, R_12, R_21, R_22, F_1, F_2): 
+            vec_That = R_11 * F_1 + R_21 * F_2
+            vec_Nhat = R_12 * F_1 + R_22 * F_2
+        
+            return vec_That, vec_Nhat
+
+        def two_by_two_matrix_multiplication(A_11, A_12, A_21, A_22, B_11, B_12, B_21, B_22): 
+            '''
+            A simple matrix multiplication of two 2X2 matrices.
+            '''
+            C_11 = A_11*B_11 + A_12*B_21
+            C_12 = A_11*B_12 + A_12*B_22
+            C_21 = A_21*B_11 + A_22*B_21
+            C_22 = A_21*B_12 + A_22*B_22
+            return C_11, C_12, C_21, C_22
+
+
+        def rotate_tensor(R_11, R_12, R_21, R_22, T_11, T_12, T_21, T_22): 
+            '''
+            Rotate tensor = R_transpose (T) R
+            '''
+            
+            # C = R_transpose (T)
+            C_11, C_12, C_21, C_22 = two_by_two_matrix_multiplication(R_11, R_21, R_12, R_22, T_11, T_12, T_21, T_22)
+        
+            # Tp = C R, where Tp is the rotated tensor
+            Tp_11, Tp_12, Tp_21, Tp_22 = two_by_two_matrix_multiplication(C_11, C_12, C_21, C_22, R_11, R_12, R_21, R_22)
+        
+            return Tp_11, Tp_12, Tp_21, Tp_22
+
+        def apply_rotation_to_dataset(ds):
+            ds=ds.copy()
+            
+            mag_frame_vector = (ds[frame_vector_vars[0]]**2 + ds[frame_vector_vars[1]]**2)**0.5
+            
+            T_hat_i = ds[frame_vector_vars[0]]/ mag_frame_vector
+            T_hat_j = ds[frame_vector_vars[1]]/ mag_frame_vector
+
+            N_hat_i = - T_hat_j
+            N_hat_j =   T_hat_i
+
+            R_11 = T_hat_i
+            R_12 = N_hat_i
+            R_21 = T_hat_j
+            R_22 = N_hat_j
+
+            
+            ds['dudx_widened_rotated'], ds['dudy_widened_rotated'], ds['dvdx_widened_rotated'], ds['dvdy_widened_rotated'] = rotate_tensor(
+                                                                                                R_11, R_12, R_21, R_22,
+                                                                                               ds['dudx_widened'], ds['dudy_widened'],
+                                                                                               ds['dvdx_widened'], ds['dvdy_widened'])
+            
+            ds['dhdx_widened_rotated'], ds['dhdy_widened_rotated'] = rotate_vector(R_11, R_12, R_21, R_22, ds['dhdx_widened'], ds['dhdy_widened'])
+                
+            
+            ds['uphp_rotated'], ds['vphp_rotated'] = rotate_vector(R_11, R_12, R_21, R_22, ds['uphp'], ds['vphp'])
+
+            return ds
+
+        self.simulation_data = self.simulation_data.map_over_subtree(apply_rotation_to_dataset)
+        
+           
+    def nondimensionalize(self):
+        '''
+        Non-dimensionalize input and output variables
+        '''
+        def calc_magnitudes(ds):
+            ds = ds.copy()
+
+            ds['mag_nabla_u_widened'] = ((ds.dudx_widened**2 + ds.dudy_widened**2 + ds.dvdx_widened**2 + ds.dvdy_widened**2).sum(['Xn','Yn']))**0.5
+            ds['mag_nabla_h_widened'] = ((ds.dhdx_widened**2 + ds.dhdy_widened**2).sum(['Xn','Yn']))**0.5
+
+            return ds
+
+        def nondimensionalize_variables(ds):
+            ds = ds.copy()
+
+            ds = calc_magnitudes(ds)
+
+            # Normalize tensor variables
+            tensor_vars = ['dudx_widened_rotated', 'dudy_widened_rotated', 'dvdx_widened_rotated', 'dvdy_widened_rotated']
+            for var_name in tensor_vars:
+                ds[var_name+'_nondim'] = ds[var_name]/ds['mag_nabla_u_widened']
+            
+            # Normalize grad h 
+            vector_vars = ['dhdx_widened_rotated', 'dhdy_widened_rotated']
+            for var_name in vector_vars:
+                ds[var_name+'_nondim'] = ds[var_name]/ds['mag_nabla_h_widened']
+
+            # Normalize fluxes
+            flux_vars = ['uphp_rotated', 'vphp_rotated']
+            for var_name in flux_vars:
+                ds[var_name+'_nondim'] = ds[var_name]/ds['mag_nabla_u_widened']/(ds['filter_scale']**2)
+
+            return ds
+
+        #self.simulation_data = self.simulation_data.map_over_subtree(calc_magnitudes)
+        self.simulation_data = self.simulation_data.map_over_subtree(nondimensionalize_variables)
+        
+
+    # Pre-processing pipeline methods
+    ## Depending on the model the pre processing pipeline may be slightly different, the function below handles this.
+    ## Also apply to datasets
     
-    def subsample_horizontally(self): 
+    def preprocess_simulation_data(self, window_size=1): 
+        
+        '''
+        Some set of default operations read in as a list and done on data to pre-process. 
+        Takes in simulation_data -> creates an expanded set of variables that may be needed for ML.
+        Note:
+            This function can be customized for different models. 
+        '''
+        # The pipeline that is emerging is:
+        ## 
+        
+        
+        self.add_variables()
+        self.create_wider_stencil(window_size=window_size, not_replace=True)
+        self.rotate_frame()
+        self.nondimensionalize()
+        # Maybe splitting default_preprocess_pipeline from create_ML_variables
+        # makes
+        
+
+        
+class MLDataset:
+    def __init__(self, simulation_data: SimulationData, 
+                 input_variables  = ['dudx','dvdx','dudy','dvdy','dhdx','dhdy'],
+                 output_variables = ['uphp','vphp'],
+                 use_mask         = True):
+
+        self.LARGEST_FILTER_SCALE = int(simulation_data.filter_scales[-1])
+        self.simulation_data = simulation_data.simulation_data
+        self.input_variables = input_variables
+        self.output_variables = output_variables
+        # ml_variables should be a list of all variables that will be needed in the ml (inputs, outputs, masks, coordinates, etc).
+        self.ml_variables = input_variables + output_variables 
+
+        if use_mask: 
+            self.use_mask = use_mask
+            self.ml_variables.append('h_mask')  
+        
+
+    def choose_ml_variables(self, input_variables = None, output_variables = None):
+        '''
+        Select input and output variables, to be operated on going forward. 
+        '''
+        
+        #if input_variables is not None: 
+            #self.input_variables = input_variables
+            #self.output_variables = output_variables
+            
+        
+        #self.ml_input_dataset = self.simulation_data.map_over_subtree(lambda n: n[self.input_variables])
+        #self.ml_output_dataset = self.simulation_data.map_over_subtree(lambda n: n[self.output_variables])
+        
+        self.ml_dataset = self.simulation_data.map_over_subtree(lambda n: n[self.ml_variables])
+            
+        # This process of choosing subset from datatree is based on the discussion from this issue
+        # https://github.com/xarray-contrib/datatree/issues/79 
+        # Eventually if a subset function is introduced, the map_over_subtree can be removed.
+    
+    def subsample_ml_variables_horizontally(self): 
         '''
         To maintain uniformity in data size we need to sub-sample the simulations with finer filter scales.
         '''
@@ -269,13 +421,14 @@ class MLDataset():
             return n.isel(xh=slice(0, None, subsample_factor), 
                           yh=slice(0, None, subsample_factor))
                                
-        self.ml_input_dataset  = self.ml_input_dataset.map_over_subtree(subsample_by_filter_scale)
-        self.ml_output_dataset = self.ml_output_dataset.map_over_subtree(subsample_by_filter_scale)
-                                                                       
+        #self.ml_input_dataset  = self.ml_input_dataset.map_over_subtree(subsample_by_filter_scale)
+        #self.ml_output_dataset = self.ml_output_dataset.map_over_subtree(subsample_by_filter_scale)
+        self.ml_dataset = self.ml_dataset.map_over_subtree(subsample_by_filter_scale)
+                                            
 
     def h_mask_ml_variables(self):
         '''
-        Mask as ml_variables using thickness masks.
+        Mask variables using thickness masks.
         '''
         def only_h_mask_data_variables(n):
             n_masked = n.copy()
@@ -287,29 +440,12 @@ class MLDataset():
             return n_masked
             
         if self.use_mask:
-            self.ml_input_dataset = self.ml_input_dataset.map_over_subtree(only_h_mask_data_variables)
-            self.ml_output_dataset = self.ml_output_dataset.map_over_subtree(only_h_mask_data_variables)
+            #self.ml_input_dataset = self.ml_input_dataset.map_over_subtree(only_h_mask_data_variables)
+            #self.ml_output_dataset = self.ml_output_dataset.map_over_subtree(only_h_mask_data_variables)
+            self.ml_dataset = self.ml_dataset.map_over_subtree(only_h_mask_data_variables)
         else:
             raise ValueError("use_mask flag is not set to true.")
-        
-    def rotate_frame(self):
-        '''
-        Rotate variables from x-y coordinates to a flow dependent coordinate. 
-        '''
-        
-        def rotate_vector():
-            pass
-        def rotate_tensor():
-            pass
-            
-        
-    def nondimensionalize():
-        '''
-        Non-dimensionalize input and output variables
-        '''
-        pass
 
-    
     def scale_normalize():
         '''
         Do some scale normalization using fixed constants, to make everything order 1. 
@@ -317,57 +453,104 @@ class MLDataset():
 
         pass
 
-
-    # Pre-processing pipeline methods
-    ## Depending on the model the pre processing pipeline may be slightly different, the function below handles this.
-    ## Also apply to datasets
-    
-    def default_preprocess_pipeline(self, window_size=1): 
-        
-        '''
-        Some set of default operations read in as a list and done on data to pre-process. 
-        Takes in simulation_data -> ml_data
-        Note:
-            This function can be customized for different models. 
-        '''
-        # The pipeline that is emerging is:
-        ## 
-        
-        self.choose_ml_variables()
-        self.add_ml_variables()
-        self.create_wider_stencil(window_size=window_size, not_replace=True)
-        self.subsample_horizontally()
-        self.h_mask_ml_variables()
-        
-
-
-    
-    # ML dataset setup pipelines
-    ## These will work with datatree.
     def split_train_test_data(self):
         '''
         Split data into training and testing sets
         '''
+                
 
-        pass
 
+    def create_ML_variables(self, input_variables=None, output_variables=None):
+        '''
+        
+        '''
+        #print('Creating ML variables')
+
+        # Choose what variables will be involved in ML
+        self.choose_ml_variables()
+
+        # Sub-sample in time 
+        self.ml_dataset = self.ml_dataset.isel(Time=slice(0, 20))
+
+        # We want to subsample the domain, since the datasets are not uniformly resolved.
+        self.subsample_ml_variables_horizontally()
+        
+        # Mask regions with vanishing thickness
+        self.h_mask_ml_variables()
+        
+        # stack spatial dimensions to points (in each node dataset)
+        self.stack_physical_dimensions()
+        #print('Before:'+ str(len(self.ml_dataset['P2L']['100'].points)))
+        
+        # Drop NaNs
+        # This likely triggers a loading into memory. 
+        self.drop_nans()
+        #print('After:'+ str(len(self.ml_dataset['P2L']['100'].points)))
+        
+        # Randomize
+        ## if we don't randomize then we will run into problem when we are
+        # selecting only a few points from each dataset (to balance data), when
+        #print(self.ml_dataset['P2L']['50'].uphp[0:5].values)
+        self.randomize_along_points()
+        #print(self.ml_dataset['P2L']['50'].uphp[0:5].values)
+        
+        # select a uniform number of points from each dataset
+        self.pick_uniform_points()
+
+        # concatenate different node datasets into one 
+        
+        
+
+    
+    # ML dataset setup pipelines
+
+    ## These will work with datatree.
+    
     def generate_batches(self):
         '''
         Generate batches with some prescribed size. 
         '''
         pass
         
-    def stack_physical_dimensions(self):
-        pass 
+    def stack_physical_dimensions(self, dims_to_stack=['Time','xh','yh','zl']):
+        '''
+        Stack selected physical dimensions into one. 
+        '''
+        self.ml_dataset = self.ml_dataset.stack(points=dims_to_stack)
 
+    def pick_uniform_points(self): 
+        self.ml_dataset = self.ml_dataset.isel(points=slice(0, self.min_points))
+        
+    def drop_nans(self):
+        '''
+        Remove data points 
+        '''
+        self.ml_dataset = self.ml_dataset.dropna('points')
+    
+    def randomize_along_points(self): 
+        min_points = float('inf')
+        
+        def randomize_dataset(ds): 
+            nonlocal min_points 
+            npoints = len(ds.points)
+            min_points = min(min_points, npoints)
+            ds_rand = ds.copy()
+            #print(ds_rand.uphp[0:5].values)
+            ds_rand = ds_rand.isel(points = np.random.choice(npoints, size=npoints, replace=False))
+            #print(npoints)
+            #print(ds_rand.uphp[0:5].values)
+            return ds_rand
+
+        self.ml_dataset = self.ml_dataset.map_over_subtree(randomize_dataset)
+        self.min_points = min_points
     
     def concat_datatree_nodes(self):
 
         pass
-        
 
 
-        
+
+
 
 ### --- Older data classes --- 
 
