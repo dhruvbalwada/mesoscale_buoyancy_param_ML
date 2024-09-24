@@ -3,9 +3,13 @@ from datatree import open_datatree, DataTree
 import xgcm
 import helper_func as hf
 import xbatcher
+import random
 import numpy as np
 from datatree import DataTree
 from datatree import open_datatree
+import time
+
+seed = 42
 
 ### --- General functions for reading xarray dataarrays and opening as datatrees
 
@@ -362,7 +366,7 @@ class SimulationData():
         '''
         # The pipeline that is emerging is:
         ## 
-        
+        self.window_size = window_size
         
         self.add_variables()
         self.create_wider_stencil(window_size=window_size, not_replace=True)
@@ -377,15 +381,19 @@ class MLDataset:
     def __init__(self, simulation_data: SimulationData, 
                  input_variables  = ['dudx','dvdx','dudy','dvdy','dhdx','dhdy'],
                  output_variables = ['uphp','vphp'],
-                 use_mask         = True):
+                 use_mask         = True,
+                 time_range= slice(0, 20)):
 
         self.LARGEST_FILTER_SCALE = int(simulation_data.filter_scales[-1])
         self.simulation_data = simulation_data.simulation_data
+        self.window_size = simulation_data.window_size
         self.input_variables = input_variables
         self.output_variables = output_variables
         # ml_variables should be a list of all variables that will be needed in the ml (inputs, outputs, masks, coordinates, etc).
         self.ml_variables = input_variables + output_variables 
-
+        
+        self.time_range = time_range
+        
         if use_mask: 
             self.use_mask = use_mask
             self.ml_variables.append('h_mask')  
@@ -436,6 +444,8 @@ class MLDataset:
             for var in n.data_vars:
                 if var != 'h_mask':
                     n_masked[var] = n[var].where(n['h_mask'])
+
+            n_masked = n_masked.drop_vars('h_mask')
             
             return n_masked
             
@@ -446,9 +456,9 @@ class MLDataset:
         else:
             raise ValueError("use_mask flag is not set to true.")
 
-    def scale_normalize():
+    def scale_normalize(self):
         '''
-        Do some scale normalization using fixed constants, to make everything order 1. 
+        Do some scale normalization using fixed constants, to make outputs order 1. 
         '''
 
         pass
@@ -456,70 +466,17 @@ class MLDataset:
     def split_train_test_data(self):
         '''
         Split data into training and testing sets
+        Note!! At the moment this takes place somewhere else.
         '''
                 
-
-
-    def create_ML_variables(self, input_variables=None, output_variables=None):
-        '''
-        
-        '''
-        #print('Creating ML variables')
-
-        # Choose what variables will be involved in ML
-        self.choose_ml_variables()
-
-        # Sub-sample in time 
-        self.ml_dataset = self.ml_dataset.isel(Time=slice(0, 20))
-
-        # We want to subsample the domain, since the datasets are not uniformly resolved.
-        self.subsample_ml_variables_horizontally()
-        
-        # Mask regions with vanishing thickness
-        self.h_mask_ml_variables()
-        
-        # stack spatial dimensions to points (in each node dataset)
-        self.stack_physical_dimensions()
-        #print('Before:'+ str(len(self.ml_dataset['P2L']['100'].points)))
-        
-        # Drop NaNs
-        # This likely triggers a loading into memory. 
-        self.drop_nans()
-        #print('After:'+ str(len(self.ml_dataset['P2L']['100'].points)))
-        
-        # Randomize
-        ## if we don't randomize then we will run into problem when we are
-        # selecting only a few points from each dataset (to balance data), when
-        #print(self.ml_dataset['P2L']['50'].uphp[0:5].values)
-        self.randomize_along_points()
-        #print(self.ml_dataset['P2L']['50'].uphp[0:5].values)
-        
-        # select a uniform number of points from each dataset
-        self.pick_uniform_points()
-
-        # concatenate different node datasets into one 
-        
-        
-
-    
-    # ML dataset setup pipelines
-
-    ## These will work with datatree.
-    
-    def generate_batches(self):
-        '''
-        Generate batches with some prescribed size. 
-        '''
-        pass
-        
-    def stack_physical_dimensions(self, dims_to_stack=['Time','xh','yh','zl']):
+    def stack_physical_dimensions(self, dims_to_stack=('Time','xh','yh','zl')):
         '''
         Stack selected physical dimensions into one. 
         '''
         self.ml_dataset = self.ml_dataset.stack(points=dims_to_stack)
 
     def pick_uniform_points(self): 
-        self.ml_dataset = self.ml_dataset.isel(points=slice(0, self.min_points))
+        self.ml_dataset = self.ml_dataset.isel(points=slice(0, self.points_per_node))
         
     def drop_nans(self):
         '''
@@ -528,6 +485,10 @@ class MLDataset:
         self.ml_dataset = self.ml_dataset.dropna('points')
     
     def randomize_along_points(self): 
+        random.seed(seed)
+        np.random.seed(seed)
+        print('Seed set as:' + str(seed))
+        
         min_points = float('inf')
         
         def randomize_dataset(ds): 
@@ -542,16 +503,122 @@ class MLDataset:
             return ds_rand
 
         self.ml_dataset = self.ml_dataset.map_over_subtree(randomize_dataset)
-        self.min_points = min_points
+        self.points_per_node = min_points
+
+    def randomize_concatenated_ml_dataset(self): 
+        npoints = len(self.concatenated_ml_dataset.points)
+        self.concatenated_ml_dataset = self.concatenated_ml_dataset.isel(points = np.random.choice(npoints, size=npoints, replace=False))
+        self.total_points = npoints
     
     def concat_datatree_nodes(self):
 
-        pass
+        all_node_ds = [] 
+        def append_members(ds):
+            all_node_ds.append(ds.copy())
+            return ds
+
+        self.ml_dataset.map_over_subtree(append_members) 
+
+        self.concatenated_ml_dataset = xr.concat(all_node_ds, dim='points')
+
+    def generate_batches(self, num_batches):
+        '''
+        Generate batches with some prescribed size. 
+        '''
+        self.ml_batches = xbatcher.BatchGenerator(ds = self.concatenated_ml_dataset, 
+                               input_dims={'Xn':self.window_size,'Yn':self.window_size},
+                               batch_dims={'points': int(self.total_points/num_batches)}   )
+        
+    def create_ML_variables(self):
+        '''
+        Run the long list of steps that takes simulation data to something that is close to being able to be ingested in the ML model.
+        '''
+        #print('Creating ML variables')
+
+        start_time = time.time()
+        
+        # Choose what variables will be involved in ML
+        self.choose_ml_variables()
+        print(f"choose_ml_variables took: {time.time() - start_time:.4f} seconds")
+        
+        # Sub-sample in time 
+        start_time = time.time()
+        self.ml_dataset = self.ml_dataset.isel(Time=self.time_range)
+        print(f"Time subsampling took: {time.time() - start_time:.4f} seconds")
+        
+        # We want to subsample the domain, since the datasets are not uniformly resolved.
+        start_time = time.time()
+        self.subsample_ml_variables_horizontally()
+        print(f"Horizontal subsampling took: {time.time() - start_time:.4f} seconds")
+        
+        # Mask regions with vanishing thickness
+        start_time = time.time()
+        self.h_mask_ml_variables()
+        print(f"h_mask_ml_variables took: {time.time() - start_time:.4f} seconds")
+        
+        # stack spatial dimensions to points (in each node dataset)
+        start_time = time.time()
+        self.stack_physical_dimensions()
+        #print('Before:'+ str(len(self.ml_dataset['P2L']['100'].points)))
+        print(f"stack_physical_dimensions took: {time.time() - start_time:.4f} seconds")
+
+        # load data into memory to speed up dataset generation
+        start_time = time.time()
+        print(f"will load upto: {self.ml_dataset.nbytes/1e9} gb")
+        self.ml_dataset.load();
+        print(f"load took: {time.time() - start_time:.4f} seconds")
+        
+        # Drop NaNs
+        # This likely triggers a loading into memory.
+        start_time = time.time()
+        self.drop_nans()
+        print(f"drop_nans took: {time.time() - start_time:.4f} seconds")
+        #print('After:'+ str(len(self.ml_dataset['P2L']['100'].points)))
+
+        
+        # Randomize
+        ## if we don't randomize then we will run into problem when we are
+        # selecting only a few points from each dataset (to balance data), when
+        #print(self.ml_dataset['P2L']['50'].uphp[0:5].values)
+        start_time = time.time()
+        self.randomize_along_points()
+        print(f"randomize_along_points took: {time.time() - start_time:.4f} seconds")
+        #print(self.ml_dataset['P2L']['50'].uphp[0:5].values)
+        
+        # select a uniform number of points from each dataset
+        start_time = time.time()
+        self.pick_uniform_points()
+        print('Picked: '+str(self.points_per_node)+'points')
+        print(f"pick_uniform_points took: {time.time() - start_time:.4f} seconds")
+        
+        # concatenate different node datasets into one 
+        start_time = time.time()
+        self.concat_datatree_nodes()
+        print(f"concat_datatree_nodes took: {time.time() - start_time:.4f} seconds")
 
 
 
+        start_time = time.time()
+        self.randomize_concatenated_ml_dataset()
+        print(f"randomize_concatenated_ml_dataset took: {time.time() - start_time:.4f} seconds")
+
+        
+        # Generate batches 
+        start_time = time.time()
+        self.generate_batches(100)
+        print(f"generate_batches took: {time.time() - start_time:.4f} seconds")
+
+    def load_ml_dataset_from_dist(self, file_name):
+        '''
+        In case ml_dataset was generatate before, and we just want to read it in. 
+        Can also allow for lazy loading. 
+        '''
+        pass 
+    
+    
 
 
+##############################
 ### --- Older data classes --- 
 
 class base_transformer: 

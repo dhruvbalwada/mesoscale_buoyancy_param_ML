@@ -3,27 +3,145 @@ import ml_helper_func as ml_hf
 import optax
 import flax
 import numpy as np
+from typing import Any, Callable, Sequence
+from jax import lax, random, numpy as jnp
 from flax.training import train_state, checkpoints
 from flax.training import orbax_utils
+from flax import linen as nn
 flax.config.update('flax_use_orbax_checkpointing', False)
 from jax import numpy as jnp
 import xarray as xr
 import orbax.checkpoint
 
-class ANN:
+
+######################## New ########################
+class ArtificialNeuralNetwork(nn.Module):
+    features: Sequence[int]
+    bias: True
     
-    def __init__(self, shape=[24,24,2], num_in=7, bias=True, diffuse=False):
-        self.shape = shape
-        self.bias = bias
-        self.model, self.params = ml_hf.initialize_model(shape, num_in , bias=self.bias, diffuse=diffuse)
+    def setup(self):
+        self.layers = [nn.Dense(feat, use_bias=self.bias) for feat in self.features]
         
+    def __call__(self, inputs):
+        x = inputs
+        for i, lyr in enumerate(self.layers):
+            x = lyr(x)
+            if i!=len(self.layers)-1:
+                x = nn.relu(x)
+        return x
+        
+class PointwiseANN: 
+    def __init__(self, shape=[24,24,2], num_in=7, bias=True, random_key=0): 
+        self.shape = shape
+        self.bias  = bias
+        self.num_in = num_in
+        self.random_key = random_key
+        
+        self.initialize_model()
+
+    def initialize_model(self): 
+        self.model = ArtificialNeuralNetwork(features=self.shape, bias = self.bias)
+        key1, key2 = random.split(random.PRNGKey(self.random_key))
+        x = random.normal(key1, (self.num_in,))
+        self.params = self.model.init(key2, x)
+
     def count_parameters(self):
         param_count = sum(x.size for x in jax.tree_util.tree_leaves(self.params))
         print(param_count)
+
+
+class AnnRegressionSystem:
+
+    def __init__(self, network, learning_rate=0.01, optimizer='adam'):
+
+        self.network = network
+        self.learning_rate = learning_rate
+        self.optimizer = optimizer
+        
+        self.train_loss = np.array([])
+        self.test_loss  = np.array([])
+
+        self.criterion = jax.value_and_grad(mse)
+        
+        self.setup_optimizer()
+        
+        self.epoch = 0 
+
+
+    def setup_optimizer(self):
+
+        if self.optimizer == 'adam': 
+            self.tx = optax.adam(learning_rate=self.learning_rate)
+        
+        self.state = train_state.TrainState.create(
+                            apply_fn=self.network.model.apply, 
+                            params=self.network.params, 
+                            tx=self.tx)
+
+    def mse(params, apply_fn, x_batched, y_batched):
+        
+        # Define squared loss for a single pair (x,y), where y can be a vector (multi-dim output) 
+        def squared_error(x,y):
+            pred = apply_fn(params, x)
+            return jnp.inner(y-pred, y-pred) / 2.0
     
-    def save_params(self, fpath):
-        return
-    
+        return jnp.nanmean(jax.vmap(squared_error)(x_batched, y_batched), axis=0)
+
+
+    def step(self, batch, kind='test'):
+        X = jnp.asarray(batch[self.input_channels].to_array().transpose(...,'variable').data)
+        y = jnp.asarray(batch[self.output_channels].to_array().transpose(...,'variable').data)
+        
+        loss_val, grads = self.criterion(self.state.params, self.state.apply_fn, X, y)
+        
+        if kind == 'train':
+            self.state = self.state.apply_gradients(grads=grads)
+        
+        return loss_val
+
+    def train_system(self, ML_data, num_epoch, print_freq=20): 
+        
+        self.ML_data = ML_data
+        
+        self.input_channels  = ML_data.input_channels
+        self.output_channels = ML_data.output_channels
+        
+        
+        for i in range(num_epoch): 
+            self.epoch = self.epoch + 1
+            
+            loss_temp = np.array([])
+            for batch in ML_data.bgen_train: 
+                if self.local_norm & (self.diffuse==False):
+                    loss_val = self.step_local_normed(batch, kind='train')
+                    #print(str(i) +' = '+str(loss_val))
+                elif self.local_norm & self.diffuse: 
+                    loss_val = self.step_local_normed_diffuse(batch, kind='train')
+                    print(str(i) +' = '+str(loss_val))
+                else:
+                    loss_val = self.step(batch, kind='train')
+                
+                loss_temp = np.append(loss_temp, loss_val)
+            
+            self.train_loss = np.append(self.train_loss, np.mean(loss_temp))
+            
+            loss_temp = np.array([])
+            for batch in ML_data.bgen_test: 
+                if self.local_norm  & (self.diffuse==False):
+                    loss_val = self.step_local_normed(batch, kind='test')
+                elif self.local_norm & self.diffuse: 
+                    loss_val = self.step_local_normed_diffuse(batch, kind='train')
+                else:
+                    loss_val = self.step(batch, kind='test')
+                loss_temp = np.append(loss_temp, loss_val)
+            
+            self.test_loss = np.append(self.test_loss, np.mean(loss_temp))
+            
+            #print(i)
+            if i % print_freq  == 0:
+                print(f'Train loss step {i}: ', self.train_loss[-1], f'test loss:', self.test_loss[-1])
+
+######################## Old ########################
     
 class RegressionSystem: 
     
@@ -429,4 +547,18 @@ class RegressionSystem:
         
 
         ds_layers.to_netcdf(nc_fname, mode='w')
+
+
+
+######################## Old
+
+class ANN:
+    
+    def __init__(self, shape=[24,24,2], num_in=7, bias=True, diffuse=False):
+        self.shape = shape
+        self.bias = bias
+        self.model, self.params = ml_hf.initialize_model(shape, num_in , bias=self.bias, diffuse=diffuse)
         
+    def count_parameters(self):
+        param_count = sum(x.size for x in jax.tree_util.tree_leaves(self.params))
+        print(param_count)
