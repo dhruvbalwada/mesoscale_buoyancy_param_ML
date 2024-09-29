@@ -8,6 +8,7 @@ import numpy as np
 from datatree import DataTree
 from datatree import open_datatree
 import time
+import jax.numpy as jnp
 
 seed = 42
 
@@ -48,24 +49,7 @@ def read_filtered_dataset(exp_name='DG', scale='100', assign_attrs=True):
     
     return ds
     
-# def read_filtered_dataset(exp_name='DG', scale='100'): 
-#     '''
-#     Read data prepared for ml using filtering
-#     from zarr store and return xarray dataset object.
-#     '''
-#     MOM6_bucket = 'gs://leap-persistent/dhruvbalwada/MOM6/'
-    
-#     if exp_name == 'DG': 
-#         ml_start = 'Double_Gyre/res5km/ml_data_'
-#         ml_end   = 'km_8_Aug_24.zarr'
-#     elif exp_name == 'P2L': 
-#         ml_start = 'Phillips2Layer/res4km_sponge10day_long_ml_data_'
-#         ml_end   = 'km_8_Aug_24.zarr'
-        
-#     fname = f'{MOM6_bucket}{ml_start}{scale}{ml_end}'
-#     ds = xr.open_zarr(fname)
 
-#     return ds
 
 def read_filtered_datatree(exp_name=['DG'], scales = ['50','100','200','400']):
     '''
@@ -133,14 +117,28 @@ def calculate_magnitudes(dtree):
 
 ### ----- Classes and methods for ML related things Regular data -> training ready ML data 
 
-class SimulationData():
+class SimulationData:
     """
-    A class to extract a machine learning dataset from a set of simulation datasets. 
+    A class to read in simulation datasets, and apply a set of operations to pre-process the data for ML.
+    This includes adding variables, creating wider stencils, rotating frames, and non-dimensionalizing variables.
+
+    This method reads in simulation data as a xarray DataTree and returns simulation_data as a xarray DataTree. 
+    This simulation_data can then be parsed to get the variables needed for ML.
 
     Attributes: 
+        - simulation_names: List of simulation names to read in
+        - filter_scales: List of filter scales to read in
+        - simulation_data: xarray DataTree object with simulation data
 
     Methods:
-    
+        - load_simulation_data: Open up simulation data as a DataTree
+        - generate_h_mask: Generate a thickness based mask
+        - add_variables: Add variables that don't already exist in the dataset
+        - create_wider_stencil: Add a stencil of specified size around the prediction point for selected variables in the dataset
+        - rotate_frame: Rotate variables from x-y coordinates to a flow dependent coordinate
+        - nondimensionalize: Non-dimensionalize input and output variables
+        - preprocess_simulation_data: Apply a set of default operations to pre-process the data.
+            (in future, this function can be customized for different models).
     """
     def __init__(self,
                  simulation_names = ['DG','P2L'],
@@ -376,22 +374,51 @@ class SimulationData():
         # Maybe splitting default_preprocess_pipeline from create_ML_variables
         # makes
         
-
         
-class MLDataset:
+class MLXarrayDataset:
+    '''
+    A class to take simulation data and keep only the variables that are needed for ML.
+
+    Attributes:
+        - simulation_data: SimulationData object.
+        - all_ml_variables: List of all variables that will be needed in the ML (inputs, outputs, masks, coordinates, etc).
+        - use_mask: Boolean to determine whether to use a thickness mask.
+        - time_range: Slice object to select a time range.
+        - ml_variables: List of all variables that will be needed in the ML (inputs, outputs, masks, coordinates, etc).
+        - LARGEST_FILTER_SCALE: Largest filter scale in the simulation data.
+        - window_size: Size of the stencil window.
+        - points_per_node: Number of points per node.
+        - total_points: Total number of points.
+        - ml_dataset: xarray DataTree object with ML variables.
+        - concatenated_ml_dataset: Concatenated xarray dataset with ML variables.
+        - ml_batches: BatchGenerator object with ML variables.
+
+    Methods:
+        - choose_ml_variables: Select input and output variables, to be operated on going forward.
+        - subsample_ml_variables_horizontally: To maintain uniformity in data size we need to sub-sample the simulations with finer filter scales.
+        - h_mask_ml_variables: Mask variables using thickness masks.
+        - scale_normalize: Do some scale normalization using fixed constants, to make outputs order 1.
+        - split_train_test_data: Split data into training and testing sets.
+        - stack_physical_dimensions: Stack selected physical dimensions into one.
+        - pick_uniform_points: Select a uniform number of points from each dataset.
+        - drop_nans: Remove data points.
+        - randomize_along_points: Randomize data points.
+        - randomize_concatenated_ml_dataset: Randomize concatenated ML dataset.
+        - concat_datatree_nodes: Concatenate different node datasets into one.
+        - generate_batches: Generate batches with some prescribed size.
+        - create_xr_ML_variables: Run the long list of steps that takes simulation data to something that is close to being able to be ingested in the ML model.
+
+    '''
     def __init__(self, simulation_data: SimulationData, 
-                 input_variables  = ['dudx','dvdx','dudy','dvdy','dhdx','dhdy'],
-                 output_variables = ['uphp','vphp'],
+                 all_ml_variables  = ['dudx','dvdx','dudy','dvdy','dhdx','dhdy','uphp','vphp'],
                  use_mask         = True,
                  time_range= slice(0, 20)):
 
         self.LARGEST_FILTER_SCALE = int(simulation_data.filter_scales[-1])
         self.simulation_data = simulation_data.simulation_data
         self.window_size = simulation_data.window_size
-        self.input_variables = input_variables
-        self.output_variables = output_variables
         # ml_variables should be a list of all variables that will be needed in the ml (inputs, outputs, masks, coordinates, etc).
-        self.ml_variables = input_variables + output_variables 
+        self.ml_variables = all_ml_variables
         
         self.time_range = time_range
         
@@ -400,18 +427,10 @@ class MLDataset:
             self.ml_variables.append('h_mask')  
         
 
-    def choose_ml_variables(self, input_variables = None, output_variables = None):
+    def choose_ml_variables(self):
         '''
-        Select input and output variables, to be operated on going forward. 
+        Select variables, to be operated on going forward. 
         '''
-        
-        #if input_variables is not None: 
-            #self.input_variables = input_variables
-            #self.output_variables = output_variables
-            
-        
-        #self.ml_input_dataset = self.simulation_data.map_over_subtree(lambda n: n[self.input_variables])
-        #self.ml_output_dataset = self.simulation_data.map_over_subtree(lambda n: n[self.output_variables])
         
         self.ml_dataset = self.simulation_data.map_over_subtree(lambda n: n[self.ml_variables])
             
@@ -430,8 +449,6 @@ class MLDataset:
             return n.isel(xh=slice(0, None, subsample_factor), 
                           yh=slice(0, None, subsample_factor))
                                
-        #self.ml_input_dataset  = self.ml_input_dataset.map_over_subtree(subsample_by_filter_scale)
-        #self.ml_output_dataset = self.ml_output_dataset.map_over_subtree(subsample_by_filter_scale)
         self.ml_dataset = self.ml_dataset.map_over_subtree(subsample_by_filter_scale)
                                             
     def h_mask_ml_variables(self):
@@ -450,8 +467,6 @@ class MLDataset:
             return n_masked
             
         if self.use_mask:
-            #self.ml_input_dataset = self.ml_input_dataset.map_over_subtree(only_h_mask_data_variables)
-            #self.ml_output_dataset = self.ml_output_dataset.map_over_subtree(only_h_mask_data_variables)
             self.ml_dataset = self.ml_dataset.map_over_subtree(only_h_mask_data_variables)
         else:
             raise ValueError("use_mask flag is not set to true.")
@@ -614,32 +629,79 @@ class MLDataset:
         print(f"generate_batches took: {time.time() - start_time:.4f} seconds")
 
 
-    ## Add some logic to preprocess data and get it ready for use with JAX/FLAX
-    # def create_ML_data(self): 
-    #     '''
-    #     This function is meant to be called after the ML variables have been made ready in xarray format. 
-    #     In this step the variables in the form of xarray created by create_xr_ML_variables are further processed 
-    #     to be in the form of jax tensors. 
+class MLJAXDataset:
+    '''
+    A class to take the xarray dataset with the meta data and different variables as data arrays
+    and convert it to a jax dataset that can be used directly for training ML models.
+    This new dataset is returned through an iterator, which returns the batches 1 by one,
+     and that can be used to train the model.
 
-    #     The goal should be to get the inputs and outputs ready for each type of model. 
-    #     There would be different cases, and maybe for each one a specialized routine would have to be adopted. 
-    #     '''
-
-    #     def 
+    Attributes:
+        - ML_dataset: MLXarrayDataset object.
+        - input_channels: List of input channels.
+        - output_channels: List of output channels.
+        - coeff_channels: List of coefficient channels.
+        - ds_norm: Normalization dataset.
+        - preprocessed_data: List of preprocessed data.
+    Methods:
+        - preprocess_batch: Preprocess a batch of data.
+        - normalize_ds: Normalize the dataset.
+        - get_batches: Generate batches.
+    '''
+    def __init__(self, ML_dataset, input_channels, output_channels, 
+                 coeff_channels=None, ds_norm=None):
+        self.input_channels = input_channels
+        self.output_channels = output_channels
+        self.coeff_channels = coeff_channels
+        self.ds_norm = ds_norm
         
-    
-    def load_ml_dataset_from_dist(self, file_name):
-        '''
-        In case ml_dataset was generatate before, and we just want to read it in. 
-        Can also allow for lazy loading. 
-        '''
-        pass 
+        # Preprocess the entire dataset
+        self.preprocessed_data = []
+        for batch in ML_dataset.ml_batches:
+            batch_out = self.preprocess_batch(batch)
+            self.preprocessed_data.append(batch_out)
 
-#class readyMLData:
+    def preprocess_batch(self, batch: xr.Dataset): 
+        # Normalize the dataset if normalization is provided
+        batch = self.normalize_ds(batch, self.ds_norm)
+        
+        # Process the input and output channels
+        X_xr = batch[self.input_channels].to_stacked_array("input_features", sample_dims=['points'])
+        y_xr = batch[self.output_channels].to_array().transpose(..., 'variable')
+
+        X = jnp.asarray(X_xr.data)
+        y = jnp.asarray(y_xr.data)
+        
+        # Xp is set at 1, or the product of the coefficient channels. 
+        # So to take the square you would have to pass channel twice.
+        if self.coeff_channels is not None:
+            Xp_xr = batch[self.coeff_channels[0]].copy()
+            for var in self.coeff_channels[1:]:
+                Xp_xr = Xp_xr * batch[var]
+            Xp = jnp.asarray(Xp_xr.data.reshape(-1, 1))
+        else:
+            Xp_xr = 0.*y_xr.copy() + 1.
+            Xp = jnp.asarray(Xp_xr.data)
+
+        # Prepare the batch output
+        # batch_out = {'X': X, 'y': y, 'Xp': Xp, 
+        #              'X_xr': X_xr, 'y_xr': y_xr, 'Xp_xr': Xp_xr}
+        batch_out = {'X': X, 'y': y, 'Xp': Xp}
+        return batch_out
+    
+    def normalize_ds(self, ds, ds_norm):
+        if ds_norm is not None:
+            return ds / ds_norm
+        return ds
+
+    def get_batches(self):
+        for batch_out in self.preprocessed_data:
+            yield batch_out
     
 
 ##############################
 ### --- Older data classes --- 
+### Kept here for backward compatibility.
 
 class base_transformer: 
     def __init__(self, 
