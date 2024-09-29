@@ -155,6 +155,7 @@ class SimulationData():
         # e.g when stencil is wider (there might be other use cases too).
 
         # Do some method calls in init, which we think will be common across.
+        print('Initializing data sequence.')
         self.load_simulation_data()
         #self.choose_ml_variables()
         
@@ -433,7 +434,6 @@ class MLDataset:
         #self.ml_output_dataset = self.ml_output_dataset.map_over_subtree(subsample_by_filter_scale)
         self.ml_dataset = self.ml_dataset.map_over_subtree(subsample_by_filter_scale)
                                             
-
     def h_mask_ml_variables(self):
         '''
         Mask variables using thickness masks.
@@ -525,13 +525,18 @@ class MLDataset:
         '''
         Generate batches with some prescribed size. 
         '''
-        self.ml_batches = xbatcher.BatchGenerator(ds = self.concatenated_ml_dataset, 
+        if 'Xn' in self.concatenated_ml_dataset.dims:
+            self.ml_batches = xbatcher.BatchGenerator(ds = self.concatenated_ml_dataset, 
                                input_dims={'Xn':self.window_size,'Yn':self.window_size},
                                batch_dims={'points': int(self.total_points/num_batches)}   )
+        else:
+            self.ml_batches = xbatcher.BatchGenerator(ds = self.concatenated_ml_dataset, 
+                               input_dims={},
+                               batch_dims={'points': int(self.total_points/num_batches)}   )
         
-    def create_ML_variables(self):
+    def create_xr_ML_variables(self, num_batches=100):
         '''
-        Run the long list of steps that takes simulation data to something that is close to being able to be ingested in the ML model.
+        Run the long list of steps that takes simulation data to something that is close to being able to be ingested in the ML model. Note that this step results in 
         '''
         #print('Creating ML variables')
 
@@ -605,18 +610,33 @@ class MLDataset:
         
         # Generate batches 
         start_time = time.time()
-        self.generate_batches(100)
+        self.generate_batches(num_batches)
         print(f"generate_batches took: {time.time() - start_time:.4f} seconds")
 
+
+    ## Add some logic to preprocess data and get it ready for use with JAX/FLAX
+    # def create_ML_data(self): 
+    #     '''
+    #     This function is meant to be called after the ML variables have been made ready in xarray format. 
+    #     In this step the variables in the form of xarray created by create_xr_ML_variables are further processed 
+    #     to be in the form of jax tensors. 
+
+    #     The goal should be to get the inputs and outputs ready for each type of model. 
+    #     There would be different cases, and maybe for each one a specialized routine would have to be adopted. 
+    #     '''
+
+    #     def 
+        
+    
     def load_ml_dataset_from_dist(self, file_name):
         '''
         In case ml_dataset was generatate before, and we just want to read it in. 
         Can also allow for lazy loading. 
         '''
         pass 
-    
-    
 
+#class readyMLData:
+    
 
 ##############################
 ### --- Older data classes --- 

@@ -12,6 +12,7 @@ flax.config.update('flax_use_orbax_checkpointing', False)
 from jax import numpy as jnp
 import xarray as xr
 import orbax.checkpoint
+from functools import partial
 
 
 ######################## New ########################
@@ -48,7 +49,7 @@ class PointwiseANN:
     def count_parameters(self):
         param_count = sum(x.size for x in jax.tree_util.tree_leaves(self.params))
         print(param_count)
-
+  
 
 class AnnRegressionSystem:
 
@@ -60,13 +61,12 @@ class AnnRegressionSystem:
         
         self.train_loss = np.array([])
         self.test_loss  = np.array([])
-
-        self.criterion = jax.value_and_grad(mse)
+        
+        self.criterion = jax.value_and_grad(self.mse, argnums=0)
         
         self.setup_optimizer()
         
         self.epoch = 0 
-
 
     def setup_optimizer(self):
 
@@ -77,22 +77,33 @@ class AnnRegressionSystem:
                             apply_fn=self.network.model.apply, 
                             params=self.network.params, 
                             tx=self.tx)
-
-    def mse(params, apply_fn, x_batched, y_batched):
         
+    def mse(self, params, x_batched, y_batched, xp_batched):
+        '''
+        This is the MSE loss with an extra multiplier that can be sample dependent or 1. 
+        When 1, this reverts to regular MSE loss. 
+        '''
         # Define squared loss for a single pair (x,y), where y can be a vector (multi-dim output) 
-        def squared_error(x,y):
-            pred = apply_fn(params, x)
+        def squared_error(x,y,xp):
+            pred = self.state.apply_fn(params, x) * xp
             return jnp.inner(y-pred, y-pred) / 2.0
     
-        return jnp.nanmean(jax.vmap(squared_error)(x_batched, y_batched), axis=0)
+        return jnp.nanmean(jax.vmap(squared_error)(x_batched, y_batched, xp_batched), axis=0)
 
-
+    #@partial(jax.jit, static_argnums=(0, 2)) # this does not work. Why? 
     def step(self, batch, kind='test'):
-        X = jnp.asarray(batch[self.input_channels].to_array().transpose(...,'variable').data)
-        y = jnp.asarray(batch[self.output_channels].to_array().transpose(...,'variable').data)
+        '''
+        This functions applies the ML model to the data and computes the loss. 
+        If the dataset is the training data, then gradient update is also done. 
+        '''
+        X = batch['X']
+        y = batch['y']
+        #Xp = batch['Xp']
+        # Xp is received in the following way to ensure that this values is present even when 
+        # it is not in the batch.
+        Xp = batch.get('Xp', jnp.broadcast_to(1., y.shape))
         
-        loss_val, grads = self.criterion(self.state.params, self.state.apply_fn, X, y)
+        loss_val, grads = self.criterion(self.state.params, X, y, Xp)
         
         if kind == 'train':
             self.state = self.state.apply_gradients(grads=grads)
@@ -100,48 +111,44 @@ class AnnRegressionSystem:
         return loss_val
 
     def train_system(self, ML_data, num_epoch, print_freq=20): 
-        
-        self.ML_data = ML_data
-        
-        self.input_channels  = ML_data.input_channels
-        self.output_channels = ML_data.output_channels
-        
-        
+        '''
+        This function trains the ML model using the data in ML_data.
+        Input:
+            ML_data: A dictionary containing the training and testing data.
+            num_epoch: Number of epochs to train the model.
+            print_freq: Frequency at which the loss is printed.
+        '''
         for i in range(num_epoch): 
             self.epoch = self.epoch + 1
-            
+
+            # training
             loss_temp = np.array([])
-            for batch in ML_data.bgen_train: 
-                if self.local_norm & (self.diffuse==False):
-                    loss_val = self.step_local_normed(batch, kind='train')
-                    #print(str(i) +' = '+str(loss_val))
-                elif self.local_norm & self.diffuse: 
-                    loss_val = self.step_local_normed_diffuse(batch, kind='train')
-                    print(str(i) +' = '+str(loss_val))
-                else:
-                    loss_val = self.step(batch, kind='train')
+            for batch in ML_data['train_gen'].get_batches():
+                loss = self.step(batch, kind='train')
+                loss_temp = np.append(loss_temp, loss)
                 
-                loss_temp = np.append(loss_temp, loss_val)
-            
             self.train_loss = np.append(self.train_loss, np.mean(loss_temp))
-            
+
+            #testing
             loss_temp = np.array([])
-            for batch in ML_data.bgen_test: 
-                if self.local_norm  & (self.diffuse==False):
-                    loss_val = self.step_local_normed(batch, kind='test')
-                elif self.local_norm & self.diffuse: 
-                    loss_val = self.step_local_normed_diffuse(batch, kind='train')
-                else:
-                    loss_val = self.step(batch, kind='test')
-                loss_temp = np.append(loss_temp, loss_val)
-            
+            for batch in ML_data['test_gen'].get_batches():
+                loss = self.step(batch, kind='test')
+
+                loss_temp = np.append(loss_temp, loss)
+                
             self.test_loss = np.append(self.test_loss, np.mean(loss_temp))
-            
-            #print(i)
+
+        
             if i % print_freq  == 0:
-                print(f'Train loss step {i}: ', self.train_loss[-1], f'test loss:', self.test_loss[-1])
+                print(f'At epoch {self.epoch}. Train loss : ', self.train_loss[-1], f', Test loss:', self.test_loss[-1])
+
+        return 
+
+    def pred():
+        return
 
 ######################## Old ########################
+## Kept here for backward compatibility. ##
     
 class RegressionSystem: 
     
@@ -243,28 +250,6 @@ class RegressionSystem:
         
         return loss_val
 
-    # def step_local_normed_diffuse(self, batch, kind='test'):
-        
-    #     X_vel = batch[['U_x', 'U_y','V_x', 'V_y']].to_array().transpose(...,'variable')
-    #     X_S = batch[['Sx', 'Sy']].to_array().transpose(...,'variable')
-    #     X_vel_mag = ((X_vel**2).mean('variable'))**0.5 + 1e-10
-    #     X_S_mag = ((X_S**2).mean('variable'))**0.5 + 1e-10
-    #     X_scale_mag = batch['Lfilt']*1e3
-    #     X_vel_normed = X_vel/X_vel_mag
-    #     X_S_normed = X_S/X_S_mag
-
-    #     psi_mag = jnp.asarray((X_vel_mag*X_S_mag*(X_scale_mag**2)).data.reshape(-1,1))
-    #     S_mag = jnp.asarray( X_S_mag.data.reshape(-1,1) )
-        
-    #     X = jnp.asarray(xr.concat([X_vel_normed, X_S_normed], dim='variable').data)
-    #     y = jnp.asarray(batch[self.output_channels].to_array().transpose(...,'variable').data)
-
-    #     loss_val, grads = self.criterion(self.state.params, self.state.apply_fn, X, y, psi_mag, S_mag)
-        
-    #     if kind == 'train':
-    #         self.state = self.state.apply_gradients(grads=grads)
-        
-    #     return loss_val
 
     def step_local_normed_windowed(self, batch, kind='test'):
         
