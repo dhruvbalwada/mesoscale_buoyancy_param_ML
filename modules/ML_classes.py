@@ -17,6 +17,22 @@ from functools import partial
 
 ######################## New ########################
 class ArtificialNeuralNetwork(nn.Module):
+    '''
+    This class is used to define an ANN model for regression.
+    
+    Input:
+        features: A list containing the number of neurons in each layer.
+        bias: A boolean indicating whether bias is to be used.
+
+    Attributes:    
+        features: A list containing the number of neurons in each layer.
+        bias: A boolean indicating whether bias is to be used.
+        layers: A list containing the layers of the ANN model.
+
+    Methods:
+        setup: Initializes the layers of the ANN model.
+        __call__: Applies the ANN model to the input data.
+    '''
     features: Sequence[int]
     bias: True
     
@@ -31,7 +47,26 @@ class ArtificialNeuralNetwork(nn.Module):
                 x = nn.relu(x)
         return x
         
-class PointwiseANN: 
+class PointwiseANN:
+    '''
+    This class is used to define an ANN model for regression.
+
+    Input:
+        shape: A list containing the number of neurons in each layer.
+        num_in: The number of input features.
+        bias: A boolean indicating whether bias is to be used.
+        random_key: A random key to initialize the model. (Default is 0)
+    Attributes:
+        shape: The shape of the ANN model.
+        bias: A boolean indicating whether bias is to be used.
+        num_in: The number of input features.
+        random_key: The random key used to initialize the model.
+        model: The ANN model.
+        params: The parameters of the model.
+    Methods:
+        initialize_model: Initializes the ANN model.
+        count_parameters: Counts the number of parameters in the model.
+    ''' 
     def __init__(self, shape=[24,24,2], num_in=7, bias=True, random_key=0): 
         self.shape = shape
         self.bias  = bias
@@ -52,6 +87,30 @@ class PointwiseANN:
   
 
 class AnnRegressionSystem:
+    '''
+    This class is used to train an ANN model for regression.
+    
+    Input:
+        network: An instance of the PointwiseANN class.
+        learning_rate: The learning rate for the optimizer.
+        optimizer: The optimizer to be used. Currently only 'adam' is supported.
+
+    Attributes:
+        network: The ANN model.
+        learning_rate: The learning rate for the optimizer.
+        optimizer: The optimizer to be used.
+        train_loss: The training loss at each epoch.
+        test_loss: The testing loss at each epoch.
+        criterion: The loss function.
+        state: The state of the optimizer.
+        epoch: The current epoch.
+    
+    Methods:
+        setup_optimizer: Sets up the optimizer.
+        mse: The mean squared error loss function.
+        step: The function that applies the model to the data and computes the loss.
+        train_system: Trains the model.
+    '''
 
     def __init__(self, network, learning_rate=0.01, optimizer='adam'):
 
@@ -69,6 +128,9 @@ class AnnRegressionSystem:
         self.epoch = 0 
 
     def setup_optimizer(self):
+        '''
+        This function sets up the optimizer.
+        '''
 
         if self.optimizer == 'adam': 
             self.tx = optax.adam(learning_rate=self.learning_rate)
@@ -123,7 +185,7 @@ class AnnRegressionSystem:
 
             # training
             loss_temp = np.array([])
-            for batch in ML_data['train_gen'].get_batches():
+            for batch in ML_data['train_data'].get_batches():
                 loss = self.step(batch, kind='train')
                 loss_temp = np.append(loss_temp, loss)
                 
@@ -131,7 +193,7 @@ class AnnRegressionSystem:
 
             #testing
             loss_temp = np.array([])
-            for batch in ML_data['test_gen'].get_batches():
+            for batch in ML_data['test_data'].get_batches():
                 loss = self.step(batch, kind='test')
 
                 loss_temp = np.append(loss_temp, loss)
@@ -144,6 +206,45 @@ class AnnRegressionSystem:
 
         return 
 
+    def save_checkpoint(self, checkpoint_dir, overwrite=True):
+        '''
+        This function saves the checkpoint of the model.
+        '''
+
+        save_dic = {'state':self.state, 
+                    'train_loss':self.train_loss, 
+                    'test_loss':self.test_loss,
+                    'epoch':self.epoch}
+
+        orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+        save_args = orbax_utils.save_args_from_target(save_dic)
+        orbax_checkpointer.save(checkpoint_dir, save_dic, save_args=save_args, force=overwrite)
+        # This is the simple way to save the checkpoint.
+        # The checkpoint manager can be used for more complex saving.
+        # https://flax.readthedocs.io/en/latest/guides/training_techniques/use_checkpointing.html#with-orbax 
+
+    def read_checkpoint(self, checkpoint_dir):
+        '''
+        This function reads the checkpoint of the model, restoring the state of the object.
+        
+        Input:
+            checkpoint_dir: The directory where the checkpoint is saved.
+
+        '''
+        orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+        save_dic_structure = {'state':self.state, 
+                              'train_loss':self.train_loss, 
+                              'test_loss':self.test_loss,
+                              'epoch':self.epoch}
+        
+        restored_dic = orbax_checkpointer.restore(checkpoint_dir, item=save_dic_structure)
+
+        self.state = restored_dic['state']
+        self.train_loss = restored_dic['train_loss']
+        self.test_loss = restored_dic['test_loss']
+        self.epoch = restored_dic['epoch']
+
+            
     def pred():
         return
 

@@ -142,20 +142,18 @@ class SimulationData:
     """
     def __init__(self,
                  simulation_names = ['DG','P2L'],
-                 filter_scales    = ['50','100','200','400'] ):
+                 filter_scales    = ['50','100','200','400'] ,
+                 window_size = 1,
+                 preprocess = True):
 
         self.simulation_names = simulation_names
         self.filter_scales = filter_scales
+        self.window_size = window_size
         
-        
-        # reserve input_channels for what actually goes into ML model,
-        # there can be cases where variables and channels have slight differences 
-        # e.g when stencil is wider (there might be other use cases too).
-
-        # Do some method calls in init, which we think will be common across.
-        print('Initializing data sequence.')
         self.load_simulation_data()
-        #self.choose_ml_variables()
+
+        if preprocess:
+            self.preprocess_simulation_data()
         
 
     def load_simulation_data(self):
@@ -198,7 +196,7 @@ class SimulationData:
             
         
     
-    def create_wider_stencil(self, variables_to_widen=['dudx','dvdx','dudy','dvdy','dhdx','dhdy'], window_size=3, not_replace=True):
+    def create_wider_stencil(self, variables_to_widen=['dudx','dvdx','dudy','dvdy','dhdx','dhdy'], not_replace=True):
         '''
         Add a stencil of specified size around the prediction point for selected variables in the dataset.
     
@@ -225,7 +223,7 @@ class SimulationData:
         
         def widen_stencil(n): 
             # Apply rolling and construct on the variables_to_widen
-            widened = n[variables_to_widen].rolling(xh=window_size, yh=window_size, 
+            widened = n[variables_to_widen].rolling(xh=self.window_size, yh=self.window_size, 
                                                     min_periods=1, center=True).construct(xh='Xn', yh='Yn')
 
             if not_replace:                
@@ -355,7 +353,7 @@ class SimulationData:
     ## Depending on the model the pre processing pipeline may be slightly different, the function below handles this.
     ## Also apply to datasets
     
-    def preprocess_simulation_data(self, window_size=1): 
+    def preprocess_simulation_data(self): 
         
         '''
         Some set of default operations read in as a list and done on data to pre-process. 
@@ -365,10 +363,10 @@ class SimulationData:
         '''
         # The pipeline that is emerging is:
         ## 
-        self.window_size = window_size
+        
         
         self.add_variables()
-        self.create_wider_stencil(window_size=window_size, not_replace=True)
+        self.create_wider_stencil()
         self.rotate_frame()
         self.nondimensionalize()
         # Maybe splitting default_preprocess_pipeline from create_ML_variables
@@ -412,7 +410,9 @@ class MLXarrayDataset:
     def __init__(self, simulation_data: SimulationData, 
                  all_ml_variables  = ['dudx','dvdx','dudy','dvdy','dhdx','dhdy','uphp','vphp'],
                  use_mask         = True,
-                 time_range= slice(0, 20)):
+                 time_range= slice(0, 20),
+                 default_create = True,
+                 num_batches=None):
 
         self.LARGEST_FILTER_SCALE = int(simulation_data.filter_scales[-1])
         self.simulation_data = simulation_data.simulation_data
@@ -421,11 +421,15 @@ class MLXarrayDataset:
         self.ml_variables = all_ml_variables
         
         self.time_range = time_range
+        self.default_create = default_create
         
         if use_mask: 
             self.use_mask = use_mask
             self.ml_variables.append('h_mask')  
         
+        if self.default_create:
+            self.create_xr_ML_variables(num_batches)
+            self.num_batches = num_batches
 
     def choose_ml_variables(self):
         '''
@@ -502,7 +506,6 @@ class MLXarrayDataset:
     def randomize_along_points(self): 
         random.seed(seed)
         np.random.seed(seed)
-        print('Seed set as:' + str(seed))
         
         min_points = float('inf')
         
@@ -511,10 +514,8 @@ class MLXarrayDataset:
             npoints = len(ds.points)
             min_points = min(min_points, npoints)
             ds_rand = ds.copy()
-            #print(ds_rand.uphp[0:5].values)
             ds_rand = ds_rand.isel(points = np.random.choice(npoints, size=npoints, replace=False))
-            #print(npoints)
-            #print(ds_rand.uphp[0:5].values)
+            
             return ds_rand
 
         self.ml_dataset = self.ml_dataset.map_over_subtree(randomize_dataset)
@@ -551,87 +552,55 @@ class MLXarrayDataset:
         
     def create_xr_ML_variables(self, num_batches=100):
         '''
-        Run the long list of steps that takes simulation data to something that is close to being able to be ingested in the ML model. Note that this step results in 
+        Run the long list of steps that takes simulation data to something that is close 
+        to being able to be ingested in the ML model. Note that this step results in an
+        xarray dataset that is loaded into memory.
         '''
-        #print('Creating ML variables')
-
-        start_time = time.time()
-        
         # Choose what variables will be involved in ML
         self.choose_ml_variables()
-        print(f"choose_ml_variables took: {time.time() - start_time:.4f} seconds")
         
         # Sub-sample in time 
-        start_time = time.time()
         self.ml_dataset = self.ml_dataset.isel(Time=self.time_range)
-        print(f"Time subsampling took: {time.time() - start_time:.4f} seconds")
-        
+    
         # We want to subsample the domain, since the datasets are not uniformly resolved.
-        start_time = time.time()
         self.subsample_ml_variables_horizontally()
-        print(f"Horizontal subsampling took: {time.time() - start_time:.4f} seconds")
         
         # Mask regions with vanishing thickness
-        start_time = time.time()
         self.h_mask_ml_variables()
-        print(f"h_mask_ml_variables took: {time.time() - start_time:.4f} seconds")
         
         # stack spatial dimensions to points (in each node dataset)
-        start_time = time.time()
         self.stack_physical_dimensions()
-        #print('Before:'+ str(len(self.ml_dataset['P2L']['100'].points)))
-        print(f"stack_physical_dimensions took: {time.time() - start_time:.4f} seconds")
-
+    
         # load data into memory to speed up dataset generation
         start_time = time.time()
-        print(f"will load upto: {self.ml_dataset.nbytes/1e9} gb")
+        print(f"Will load : {self.ml_dataset.nbytes/1e9} gb into memory.")
         self.ml_dataset.load();
         print(f"load took: {time.time() - start_time:.4f} seconds")
         
         # Drop NaNs
-        # This likely triggers a loading into memory.
-        start_time = time.time()
         self.drop_nans()
-        print(f"drop_nans took: {time.time() - start_time:.4f} seconds")
-        #print('After:'+ str(len(self.ml_dataset['P2L']['100'].points)))
 
-        
         # Randomize
         ## if we don't randomize then we will run into problem when we are
-        # selecting only a few points from each dataset (to balance data), when
-        #print(self.ml_dataset['P2L']['50'].uphp[0:5].values)
-        start_time = time.time()
+        # selecting only a few points from each dataset to make a batch.
         self.randomize_along_points()
-        print(f"randomize_along_points took: {time.time() - start_time:.4f} seconds")
-        #print(self.ml_dataset['P2L']['50'].uphp[0:5].values)
         
         # select a uniform number of points from each dataset
-        start_time = time.time()
         self.pick_uniform_points()
-        print('Picked: '+str(self.points_per_node)+'points')
-        print(f"pick_uniform_points took: {time.time() - start_time:.4f} seconds")
         
         # concatenate different node datasets into one 
-        start_time = time.time()
         self.concat_datatree_nodes()
-        print(f"concat_datatree_nodes took: {time.time() - start_time:.4f} seconds")
 
-
-
-        start_time = time.time()
         self.randomize_concatenated_ml_dataset()
-        print(f"randomize_concatenated_ml_dataset took: {time.time() - start_time:.4f} seconds")
 
-        
         # Generate batches 
-        start_time = time.time()
         self.generate_batches(num_batches)
-        print(f"generate_batches took: {time.time() - start_time:.4f} seconds")
 
 
 class MLJAXDataset:
     '''
-    A class to take the xarray dataset with the meta data and different variables as data arrays
+    A class to take the xarray ML dataset object from MLXarrayDataset 
+    (with the meta data and different variables as data arrays)
     and convert it to a jax dataset that can be used directly for training ML models.
     This new dataset is returned through an iterator, which returns the batches 1 by one,
      and that can be used to train the model.
@@ -674,7 +643,7 @@ class MLJAXDataset:
         
         # Xp is set at 1, or the product of the coefficient channels. 
         # So to take the square you would have to pass channel twice.
-        if self.coeff_channels is not None:
+        if (self.coeff_channels is not None) and (len(self.coeff_channels) > 0):
             Xp_xr = batch[self.coeff_channels[0]].copy()
             for var in self.coeff_channels[1:]:
                 Xp_xr = Xp_xr * batch[var]
@@ -686,6 +655,7 @@ class MLJAXDataset:
         # Prepare the batch output
         # batch_out = {'X': X, 'y': y, 'Xp': Xp, 
         #              'X_xr': X_xr, 'y_xr': y_xr, 'Xp_xr': Xp_xr}
+        
         batch_out = {'X': X, 'y': y, 'Xp': Xp}
         return batch_out
     

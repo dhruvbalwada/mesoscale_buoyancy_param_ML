@@ -8,3 +8,4 @@ wandb
 ckpts*
 __pycache__
 data
+*ckpts*
