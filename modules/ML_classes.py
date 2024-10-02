@@ -8,7 +8,6 @@ from jax import lax, random, numpy as jnp
 from flax.training import train_state, checkpoints
 from flax.training import orbax_utils
 from flax import linen as nn
-flax.config.update('flax_use_orbax_checkpointing', False)
 from jax import numpy as jnp
 import xarray as xr
 import orbax.checkpoint
@@ -85,7 +84,6 @@ class PointwiseANN:
         param_count = sum(x.size for x in jax.tree_util.tree_leaves(self.params))
         print(param_count)
   
-
 class AnnRegressionSystem:
     '''
     This class is used to train an ANN model for regression.
@@ -229,7 +227,6 @@ class AnnRegressionSystem:
         
         Input:
             checkpoint_dir: The directory where the checkpoint is saved.
-
         '''
         orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
         save_dic_structure = {'state':self.state, 
@@ -245,8 +242,11 @@ class AnnRegressionSystem:
         self.epoch = restored_dic['epoch']
 
             
-    def pred():
-        return
+    def pred(self, X, Xp):
+        '''
+        This function predicts the output of the model for the input X, with multiplier Xp.
+        '''
+        return self.state.apply_fn(self.state.params, X) * Xp
 
 ######################## Old ########################
 ## Kept here for backward compatibility. ##

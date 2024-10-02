@@ -6,6 +6,7 @@ figures
 figure
 wandb
 ckpts*
+*ckpt*
 __pycache__
 data
 *ckpts*

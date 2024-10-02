@@ -50,7 +50,6 @@ def read_filtered_dataset(exp_name='DG', scale='100', assign_attrs=True):
     return ds
     
 
-
 def read_filtered_datatree(exp_name=['DG'], scales = ['50','100','200','400']):
     '''
     Read data from multiple scales and experiments (or other properties) at once 
@@ -137,6 +136,7 @@ class SimulationData:
         - create_wider_stencil: Add a stencil of specified size around the prediction point for selected variables in the dataset
         - rotate_frame: Rotate variables from x-y coordinates to a flow dependent coordinate
         - nondimensionalize: Non-dimensionalize input and output variables
+        
         - preprocess_simulation_data: Apply a set of default operations to pre-process the data.
             (in future, this function can be customized for different models).
     """
@@ -668,6 +668,7 @@ class MLJAXDataset:
         for batch_out in self.preprocessed_data:
             yield batch_out
     
+
 
 ##############################
 ### --- Older data classes --- 
