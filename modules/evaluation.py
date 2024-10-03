@@ -6,6 +6,102 @@ import xrft
 import PE_module
 import numpy as np
 
+class EvalSystem:
+    '''
+    
+    '''
+    def __init__(self, 
+                 simulation_data, 
+                 input_channels,
+                 output_channels,
+                 coeff_channels,
+                 ds_norm_factors,
+                 eval_time_slice,
+                 num_inputs,
+                 shape,
+                 ckpt_dir):
+
+        self.simulation_data = simulation_data 
+        self.input_channels = input_channels
+        self.output_channels = output_channels
+        self.coeff_channels = coeff_channels
+        self.ds_norm_factors = ds_norm_factors
+        self.eval_time_slice = eval_time_slice
+        self.num_inputs = num_inputs
+        self.shape = shape
+        self.model_ckpt_dir = ckpt_dir
+
+        #self.read_ann_regression_model()
+
+        #self.read_eval_data()
+
+
+    def read_ann_regression_model(self): 
+        '''
+        Read the ANN model for regression.
+        '''
+        self.ANN_model = ML_classes.PointwiseANN(num_in=self.num_inputs,
+                                                 shape=self.shape)
+        self.regress_sys = ML_classes.AnnRegressionSystem(self.ANN_model)
+        # This step loads in the model.
+        self.regress_sys.read_checkpoint(self.model_ckpt_dir)
+
+    def read_eval_data(self):
+        '''
+        '''
+        self.eval_datatree = datasets.MLXarrayDataset(simulation_data=self.simulation_data,
+                                                      all_ml_variables=self.input_channels + self.output_channels + self.coeff_channels,
+                                                      time_range=self.eval_time_slice,
+                                                      default_create=False)
+        
+        self.eval_datatree.choose_ml_variables()
+        self.eval_datatree.subsample_ml_variables_time()
+
+
+    def predict(self): 
+        
+        def predict_for_dataset(ds):
+            ml_ds = ds.copy()
+
+            input_ds = ml_ds[self.input_channels]
+            output_ds = ml_ds[self.output_channels]
+            coeff_ds = ml_ds[self.coeff_channels]
+
+            input_normed_ds = input_ds/self.ds_norm_factors
+            output_normed_ds = output_ds/self.ds_norm_factors
+
+            X_xr = input_normed_ds.to_stacked_array("input_features", sample_dims=['Time', 'zl', 'yh', 'xh'])
+            y_xr = output_normed_ds.to_array().transpose('Time', 'zl', 'yh', 'xh', 'variable')
+
+            if len(self.coeff_channels) > 0:
+                Xp_xr = batch[self.coeff_channels[0]].copy()
+                for var in self.coeff_channels[1:]:
+                    Xp_xr = Xp_xr * batch[var]
+                    #Xp = jnp.asarray(Xp_xr.data.reshape(-1, 1))
+            else:
+                Xp_xr = 0.*y_xr.copy() + 1.
+                    #Xp = jnp.asarray(Xp_xr.data)
+            
+            #Xp_xr = 0. * y_xr.copy() + 1.
+
+            y_pred_xr = self.regress_sys.pred(X_xr, Xp_xr)
+
+            pred_xr = y_pred_xr.to_dataset(dim='variable') * self.ds_norm_factors
+
+            # Create a dictionary mapping old variable names to new variable names with '_pred' suffix
+            rename_dict = {var: f"{var}_pred" for var in pred_xr.data_vars}
+
+            # Rename the variables in the dataset
+            pred_xr = pred_xr.rename(rename_dict)
+
+            ml_ds = ml_ds.update(pred_xr)
+
+            return ml_ds
+        self.eval_datatree.ml_dataset = self.eval_datatree.ml_dataset.map_over_subtree(predict_for_dataset)
+
+
+### Old classes, kept here for backward compatibility.
+
 def full_reader(model_nc, data_zarr, L, data_kind, exp_name, ML_name,Tsel=slice(-25, None), Tdim='Time',
                windowed=False, window_size=None, local_norm=False, out_para_perp=False, dims_input = ['time', 'Z', 'YC', 'XC'], diffuse=False):
     '''

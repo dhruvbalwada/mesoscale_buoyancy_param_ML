@@ -434,6 +434,7 @@ class MLXarrayDataset:
     def choose_ml_variables(self):
         '''
         Select variables, to be operated on going forward. 
+        ml_dataset - a datatree with only the variables that are needed for ML is created.
         '''
         
         self.ml_dataset = self.simulation_data.map_over_subtree(lambda n: n[self.ml_variables])
@@ -442,6 +443,12 @@ class MLXarrayDataset:
         # https://github.com/xarray-contrib/datatree/issues/79 
         # Eventually if a subset function is introduced, the map_over_subtree can be removed.
     
+    def subsample_ml_variables_time(self):
+        '''
+        Sub-sample in time.
+        '''
+        self.ml_dataset = self.ml_dataset.isel(Time=self.time_range)
+
     def subsample_ml_variables_horizontally(self): 
         '''
         To maintain uniformity in data size we need to sub-sample the simulations with finer filter scales.
@@ -474,19 +481,6 @@ class MLXarrayDataset:
             self.ml_dataset = self.ml_dataset.map_over_subtree(only_h_mask_data_variables)
         else:
             raise ValueError("use_mask flag is not set to true.")
-
-    def scale_normalize(self):
-        '''
-        Do some scale normalization using fixed constants, to make outputs order 1. 
-        '''
-
-        pass
-
-    def split_train_test_data(self):
-        '''
-        Split data into training and testing sets
-        Note!! At the moment this takes place somewhere else.
-        '''
                 
     def stack_physical_dimensions(self, dims_to_stack=('Time','xh','yh','zl')):
         '''
@@ -560,7 +554,8 @@ class MLXarrayDataset:
         self.choose_ml_variables()
         
         # Sub-sample in time 
-        self.ml_dataset = self.ml_dataset.isel(Time=self.time_range)
+        #self.ml_dataset = self.ml_dataset.isel(Time=self.time_range)
+        self.subsample_ml_variables_time()
     
         # We want to subsample the domain, since the datasets are not uniformly resolved.
         self.subsample_ml_variables_horizontally()
@@ -596,6 +591,16 @@ class MLXarrayDataset:
         # Generate batches 
         self.generate_batches(num_batches)
 
+    def create_xr_eval_variables(self):
+        '''
+        Create evaluation variables.
+        The reason this is separate from create_xr_ML_variables is that 
+        we would not want to do all the operations that we do for ML data.
+        Example: We don't want to randomize the data, or stack the dimensions, 
+               or sub-sample the data, etc. 
+        '''
+
+        pass
 
 class MLJAXDataset:
     '''
