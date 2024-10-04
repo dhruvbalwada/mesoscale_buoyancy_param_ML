@@ -178,25 +178,27 @@ class SimulationData:
         self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(h_mask = (n[thickness_variable]>= thin_limit) ))
                                                                      
 
-    def add_variables(self, add_filter_scale=True, add_mask=True):
+    def add_variables(self, add_filter_scale=True, add_mask=True, add_middle_interface=True):
         '''
         To add variables that don't already exist in the dataset.
-        Examples can be length scales, or some grid related variable.
+        Examples can be length scales, some grid related variable, or some variables that are derived from existing variables.
         '''
         # Add length scales
         if add_mask:
             self.generate_h_mask()
             
+        # Add filter scales
         if add_filter_scale:
             #self.ml_input_dataset = self.ml_input_dataset.map_over_subtree(lambda n: n.assign(filter_scale = float(n.attrs['filter_scale'])*1e3 + 0.*n.dudx))
             self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(filter_scale = float(n.attrs['filter_scale'])*1e3 + 0.*n.dudx))
 
-        # if add_mask:
-        #     self.ml_input_dataset = self.ml_input_dataset.map_over_subtree(lambda n: n.assign(h_mask = 
-            
+        # Add middle interface as a variable
+        if add_middle_interface:
+            self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedx_middle = n.dedx.isel(zi=1) + 0.*n.dhdx))
+            self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedy_middle = n.dedy.isel(zi=1) + 0.*n.dhdy))
         
     
-    def create_wider_stencil(self, variables_to_widen=['dudx','dvdx','dudy','dvdy','dhdx','dhdy'], not_replace=True):
+    def create_wider_stencil(self, variables_to_widen=['dudx','dvdx','dudy','dvdy','dhdx','dhdy','dedx_middle', 'dedy_middle'], not_replace=True):
         '''
         Add a stencil of specified size around the prediction point for selected variables in the dataset.
     
@@ -240,15 +242,14 @@ class SimulationData:
         self.simulation_data = self.simulation_data.map_over_subtree(widen_stencil)
 
        
-    def rotate_frame(self, frame_vector_vars = ['dhdx','dhdy'], ):
+    def rotate_frame(self, frame_vector_vars = ['dhdx','dhdy']):
         '''
         Rotate variables from x-y coordinates to a flow dependent coordinate. 
 
         frame_vector_vars: Names of the vectors that will be used to rotate the frame. 
         
         '''
-        
-        
+       
         def rotate_vector(R_11, R_12, R_21, R_22, F_1, F_2): 
             vec_That = R_11 * F_1 + R_21 * F_2
             vec_Nhat = R_12 * F_1 + R_22 * F_2
@@ -318,7 +319,9 @@ class SimulationData:
         def calc_magnitudes(ds):
             ds = ds.copy()
 
+            ds['mag_nabla_u'] = (ds.dudx**2 + ds.dudy**2 + ds.dvdx**2 + ds.dvdy**2)**0.5
             ds['mag_nabla_u_widened'] = ((ds.dudx_widened**2 + ds.dudy_widened**2 + ds.dvdx_widened**2 + ds.dvdy_widened**2).sum(['Xn','Yn']))**0.5
+            ds['mag_nabla_h'] = (ds.dhdx**2 + ds.dhdy**2)**0.5
             ds['mag_nabla_h_widened'] = ((ds.dhdx_widened**2 + ds.dhdy_widened**2).sum(['Xn','Yn']))**0.5
 
             return ds
@@ -329,10 +332,25 @@ class SimulationData:
             ds = calc_magnitudes(ds)
 
             # Normalize tensor variables
+            tensor_vars = ['dudx', 'dudy', 'dvdx', 'dvdy']
+            for var_name in tensor_vars:
+                ds[var_name+'_nondim'] = ds[var_name]/ds['mag_nabla_u']
+
+            # Normalize tensor variables
+            tensor_vars = ['dudx_widened', 'dudy_widened', 'dvdx_widened', 'dvdy_widened']
+            for var_name in tensor_vars:
+                ds[var_name+'_nondim'] = ds[var_name]/ds['mag_nabla_u_widened']
+
+            # Normalize tensor variables
             tensor_vars = ['dudx_widened_rotated', 'dudy_widened_rotated', 'dvdx_widened_rotated', 'dvdy_widened_rotated']
             for var_name in tensor_vars:
                 ds[var_name+'_nondim'] = ds[var_name]/ds['mag_nabla_u_widened']
             
+            # Normalize grad h 
+            vector_vars = ['dhdx_widened', 'dhdy_widened']
+            for var_name in vector_vars:
+                ds[var_name+'_nondim'] = ds[var_name]/ds['mag_nabla_h_widened']
+
             # Normalize grad h 
             vector_vars = ['dhdx_widened_rotated', 'dhdy_widened_rotated']
             for var_name in vector_vars:
@@ -340,6 +358,11 @@ class SimulationData:
 
             # Normalize fluxes
             flux_vars = ['uphp_rotated', 'vphp_rotated']
+            for var_name in flux_vars:
+                ds[var_name+'_nondim'] = ds[var_name]/ds['mag_nabla_u_widened']/(ds['filter_scale']**2)
+
+            # Normalize fluxes
+            flux_vars = ['uphp', 'vphp']
             for var_name in flux_vars:
                 ds[var_name+'_nondim'] = ds[var_name]/ds['mag_nabla_u_widened']/(ds['filter_scale']**2)
 
