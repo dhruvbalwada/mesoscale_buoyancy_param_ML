@@ -194,8 +194,10 @@ class SimulationData:
 
         # Add middle interface as a variable
         if add_middle_interface:
-            self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedx_middle = n.dedx.isel(zi=1) + 0.*n.dhdx))
-            self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedy_middle = n.dedy.isel(zi=1) + 0.*n.dhdy))
+            self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedx_middle = (n.dedx.isel(zi=1) + 0.*n.dhdx) ))
+            self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedy_middle = (n.dedy.isel(zi=1) + 0.*n.dhdy) ))
+            #self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedx_middle = np.sign(n.zl - n.zl.mean()) * (n.dedx.isel(zi=1) + 0.*n.dhdx) ))
+            #self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedy_middle = np.sign(n.zl - n.zl.mean()) * (n.dedy.isel(zi=1) + 0.*n.dhdy) ))
         
     
     def create_wider_stencil(self, variables_to_widen=['dudx','dvdx','dudy','dvdy','dhdx','dhdy','dedx_middle', 'dedy_middle'], not_replace=True):

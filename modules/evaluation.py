@@ -35,7 +35,7 @@ class EvalSystem:
 
         #self.read_eval_data()
 
-
+# Methods to setup the evaluation system
     def read_ann_regression_model(self): 
         '''
         Read the ANN model for regression.
@@ -56,7 +56,6 @@ class EvalSystem:
         
         self.eval_datatree.choose_ml_variables()
         self.eval_datatree.subsample_ml_variables_time()
-
 
     def predict(self): 
         
@@ -98,6 +97,87 @@ class EvalSystem:
 
             return ml_ds
         self.eval_datatree.ml_dataset = self.eval_datatree.ml_dataset.map_over_subtree(predict_for_dataset)
+
+# Methods to evaluate the model
+
+# Metrics to evaluate the model
+    @staticmethod
+    def _R2(true, pred, dims=['Time', 'xh', 'yh', 'zl']):
+        """
+        Calculate the coefficient of determination (R-squared) between true and predicted values for a given variable.
+
+        Parameters:
+        - true (xr.DataArray): The true values.
+        - pred (xr.DataArray): The predicted values.
+        - var (str): The variable to calculate R-squared for.
+        - dims (list): List of dimensions to average over (default: ['time', 'XC', 'YC', 'Z']).
+
+        Returns:
+        - float: The R-squared value.
+        """
+        RSS = ((pred - true) ** 2).mean(dims)
+        TSS = ((true) ** 2).mean(dims)
+
+        
+        R2 = 1 - RSS / TSS
+
+        return R2
+
+
+    @staticmethod
+    def _correlation(true, pred, dims=['Time', 'xh', 'yh', 'zl']):
+        """
+        Calculate the correlation coefficient between true and predicted values for a given variable.
+
+        Parameters:
+        - true (xr.DataArray): The true values.
+        - pred (xr.DataArray): The predicted values.
+        - var (str): The variable to calculate correlation for.
+        - dims (list): List of dimensions to average over (default: ['time', 'XC', 'YC', 'Z']).
+
+        Returns:
+        - xr.DataArray: The correlation coefficient.
+        """
+        correlation_coefficient = xr.corr(true, pred, dim=dims)
+        return correlation_coefficient
+
+    @staticmethod
+    def _MSE(true, pred, dims=['Time', 'xh', 'yh', 'zl']):
+        """
+        Calculate the mean squared error between true and predicted values for a given variable.
+
+        Parameters:
+        - true (xr.DataArray): The true values.
+        - pred (xr.DataArray): The predicted values.
+        - var (str): The variable to calculate MSE for.
+        - dims (list): List of dimensions to average over (default: ['time', 'XC', 'YC', 'Z']).
+
+        Returns:
+        - float: The MSE value.
+        """
+        MSE = ((pred - true) ** 2).mean(dims)
+
+        return MSE
+    
+    def calc_time_hor_space_metrics(self, var='uphp', dims=['Time','xh','yh','zl'], xh_region=slice(0, None), yh_region=slice(0, None), zl_slice=slice(0, None)): 
+        
+        def calc_for_dataset(ds): 
+            ds = ds.copy()
+            true = ds[var].sel(xh=xh_region, yh=yh_region, zl=zl_slice)
+
+            try:
+                pred = ds[var+'_pred'].sel(xh=xh_region, yh=yh_region, zl=zl_slice)
+            except KeyError:
+                print('No prediction found for variable: ' + var)
+
+            
+            ds[var+'_R2_all_space_time'] = self._R2(true, pred, dims=dims)
+            ds[var+'_corr_all_space_time'] = self._correlation(true, pred, dims=dims)
+            ds[var+'_mse_all_space_time'] = self._MSE(true, pred, dims=dims)
+            return ds 
+        
+        self.eval_datatree.ml_dataset = self.eval_datatree.ml_dataset.map_over_subtree(calc_for_dataset)
+        
 
 
 ### Old classes, kept here for backward compatibility.
