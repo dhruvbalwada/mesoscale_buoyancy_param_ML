@@ -170,15 +170,37 @@ class SimulationData:
     # Pre-processing methods
     ## These apply to individual datasets, which sit at end nodes of datatree. 
 
-    def generate_h_mask(self, thin_limit = 5, thickness_variable='hbar'): 
+    def generate_h_mask(self, thin_limit = 20, thickness_variable='hbar'): 
         '''
         Often we need a thickness based mask :
             Don't consider points where the thickness is too small.
         '''
         self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(h_mask = (n[thickness_variable]>= thin_limit) ))
-                                                                     
 
-    def add_variables(self, add_filter_scale=True, add_mask=True, add_middle_interface=True):
+    def single_layer_mask(self, thin_limit = 20):
+        '''
+        Create and apply a mask for situations where there is only one layer of fluid. 
+        '''
+        # Create a mask for regions with only one layer of fluid. 
+        self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(single_layer_mask = ( n['hbar'].sum('zl') - n['hbar'].isel(zl=0) >= thin_limit) ))
+
+        def mask_data_variables(n):
+            n_masked = n.copy()
+            
+            for var in n.data_vars:
+                if var != 'single_layer_mask' or var != 'h_mask':
+                    n_masked[var] = n[var].where(n['single_layer_mask'])
+
+            #n_masked = n_masked.drop_vars('h_mask')
+            
+            return n_masked
+            
+        # Apply the mask to all variables in the dataset.
+        self.simulation_data = self.simulation_data.map_over_subtree(mask_data_variables)
+            
+
+    def add_variables(self, add_filter_scale=True, add_mask=True, 
+                            add_middle_interface=True,  add_layer_decomposition=True):
         '''
         To add variables that don't already exist in the dataset.
         Examples can be length scales, some grid related variable, or some variables that are derived from existing variables.
@@ -194,13 +216,38 @@ class SimulationData:
 
         # Add middle interface as a variable
         if add_middle_interface:
-            self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedx_middle = (n.dedx.isel(zi=1) + 0.*n.dhdx) ))
-            self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedy_middle = (n.dedy.isel(zi=1) + 0.*n.dhdy) ))
-            #self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedx_middle = np.sign(n.zl - n.zl.mean()) * (n.dedx.isel(zi=1) + 0.*n.dhdx) ))
-            #self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedy_middle = np.sign(n.zl - n.zl.mean()) * (n.dedy.isel(zi=1) + 0.*n.dhdy) ))
+            #self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedx_middle = (n.dedx.isel(zi=1) + 0.*n.dhdx) ))
+            #self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedy_middle = (n.dedy.isel(zi=1) + 0.*n.dhdy) ))
+            self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedx_middle = np.sign(n.zl - n.zl.mean()) * (n.dedx.isel(zi=1) + 0.*n.dhdx) ))
+            self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedy_middle = np.sign(n.zl - n.zl.mean()) * (n.dedy.isel(zi=1) + 0.*n.dhdy) ))
         
-    
-    def create_wider_stencil(self, variables_to_widen=['dudx','dvdx','dudy','dvdy','dhdx','dhdy','dedx_middle', 'dedy_middle'], not_replace=True):
+        # Decompose layer thickness gradients into steady and unsteady components.
+        def decompose_layer_thickness_gradients(ds):
+            ds = ds.copy()
+            
+            dhbardx = xr.DataArray(np.zeros_like(ds.dhdx), dims=ds.dhdx.dims, coords=ds.dhdx.coords)
+            dhbardy = xr.DataArray(np.zeros_like(ds.dhdx), dims=ds.dhdx.dims, coords=ds.dhdx.coords)
+
+            # This does not work in this case. 
+            #dhbardx = 0.*ds.dhdx
+            #dhbardy = 0.*ds.dhdy
+
+            dhbardx.isel(zl=1)[:] = -ds.dedx.isel(zi=-1)
+            dhbardy.isel(zl=1)[:] = -ds.dedy.isel(zi=-1)
+
+            ds['dhbardx'] = dhbardx
+            ds['dhbardy'] = dhbardy
+
+            ds['dhdx'] = ds['dhdx'] - ds['dhbardx']
+            ds['dhdy'] = ds['dhdy'] - ds['dhbardy']
+          
+            return ds
+        
+        if add_layer_decomposition: 
+            self.simulation_data = self.simulation_data.map_over_subtree(decompose_layer_thickness_gradients)
+
+
+    def create_wider_stencil(self, variables_to_widen=['dudx','dvdx','dudy','dvdy','dhdx','dhdy','dhbardx','dhbardy','dedx_middle', 'dedy_middle'], not_replace=True):
         '''
         Add a stencil of specified size around the prediction point for selected variables in the dataset.
     
@@ -394,6 +441,9 @@ class SimulationData:
         self.create_wider_stencil()
         self.rotate_frame()
         self.nondimensionalize()
+        # The step below adds a massive time overhead.
+        self.single_layer_mask()
+
         # Maybe splitting default_preprocess_pipeline from create_ML_variables
         # makes
         
