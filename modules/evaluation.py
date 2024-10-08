@@ -19,12 +19,14 @@ class EvalSystem:
                  eval_time_slice,
                  num_inputs,
                  shape,
-                 ckpt_dir):
+                 ckpt_dir, 
+                 use_coeff_channels=False):
 
         self.simulation_data = simulation_data 
         self.input_channels = input_channels
         self.output_channels = output_channels
         self.coeff_channels = coeff_channels
+        self.use_coeff_channels = use_coeff_channels
         self.ds_norm_factors = ds_norm_factors
         self.eval_time_slice = eval_time_slice
         self.num_inputs = num_inputs
@@ -72,7 +74,7 @@ class EvalSystem:
             X_xr = input_normed_ds.to_stacked_array("input_features", sample_dims=['Time', 'zl', 'yh', 'xh'])
             y_xr = output_normed_ds.to_array().transpose('Time', 'zl', 'yh', 'xh', 'variable')
 
-            if len(self.coeff_channels) > 0:
+            if (len(self.coeff_channels) > 0) and (self.use_coeff_channels):
                 Xp_xr = batch[self.coeff_channels[0]].copy()
                 for var in self.coeff_channels[1:]:
                     Xp_xr = Xp_xr * batch[var]
@@ -97,6 +99,9 @@ class EvalSystem:
 
             return ml_ds
         self.eval_datatree.ml_dataset = self.eval_datatree.ml_dataset.map_over_subtree(predict_for_dataset)
+
+    def dimensionalize(self): 
+
 
 # Methods to evaluate the model
 
@@ -159,7 +164,9 @@ class EvalSystem:
 
         return MSE
     
-    def calc_time_hor_space_metrics(self, var='uphp', dims=['Time','xh','yh','zl'], xh_region=slice(0, None), yh_region=slice(0, None), zl_slice=slice(0, None)): 
+    def calc_time_hor_space_metrics(self, var='uphp', dims=['Time','xh','yh','zl'], 
+                                    descriptor='all_space_time',
+                                    xh_region=slice(0, None), yh_region=slice(0, None), zl_slice=slice(0, None)): 
         
         def calc_for_dataset(ds): 
             ds = ds.copy()
@@ -171,9 +178,10 @@ class EvalSystem:
                 print('No prediction found for variable: ' + var)
 
             
-            ds[var+'_R2_all_space_time'] = self._R2(true, pred, dims=dims)
-            ds[var+'_corr_all_space_time'] = self._correlation(true, pred, dims=dims)
-            ds[var+'_mse_all_space_time'] = self._MSE(true, pred, dims=dims)
+            ds[var+'_R2_'+descriptor] = self._R2(true, pred, dims=dims)
+            ds[var+'_corr_'+descriptor] = self._correlation(true, pred, dims=dims)
+            ds[var+'_mse_'+descriptor] = self._MSE(true, pred, dims=dims)
+            
             return ds 
         
         self.eval_datatree.ml_dataset = self.eval_datatree.ml_dataset.map_over_subtree(calc_for_dataset)

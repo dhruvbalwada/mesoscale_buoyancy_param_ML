@@ -144,7 +144,9 @@ class SimulationData:
                  simulation_names = ['DG','P2L'],
                  filter_scales    = ['50','100','200','400'] ,
                  window_size = 1,
-                 preprocess = True):
+                 preprocess = True,
+                 single_layer_mask = True,
+                 time_sel = None):
 
         self.simulation_names = simulation_names
         self.filter_scales = filter_scales
@@ -152,8 +154,11 @@ class SimulationData:
         
         self.load_simulation_data()
 
+        if time_sel is not None:
+            self.simulation_data = self.simulation_data.isel(Time=time_sel)
+
         if preprocess:
-            self.preprocess_simulation_data()
+            self.preprocess_simulation_data(single_layer_mask=single_layer_mask)
         
 
     def load_simulation_data(self):
@@ -169,13 +174,13 @@ class SimulationData:
  
     # Pre-processing methods
     ## These apply to individual datasets, which sit at end nodes of datatree. 
-
     def generate_h_mask(self, thin_limit = 20, thickness_variable='hbar'): 
         '''
         Often we need a thickness based mask :
             Don't consider points where the thickness is too small.
         '''
         self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(h_mask = (n[thickness_variable]>= thin_limit) ))
+
 
     def single_layer_mask(self, thin_limit = 20):
         '''
@@ -425,7 +430,7 @@ class SimulationData:
     ## Depending on the model the pre processing pipeline may be slightly different, the function below handles this.
     ## Also apply to datasets
     
-    def preprocess_simulation_data(self): 
+    def preprocess_simulation_data(self, single_layer_mask=True): 
         
         '''
         Some set of default operations read in as a list and done on data to pre-process. 
@@ -442,7 +447,8 @@ class SimulationData:
         self.rotate_frame()
         self.nondimensionalize()
         # The step below adds a massive time overhead.
-        self.single_layer_mask()
+        if single_layer_mask:
+            self.single_layer_mask()
 
         # Maybe splitting default_preprocess_pipeline from create_ML_variables
         # makes
@@ -698,10 +704,11 @@ class MLJAXDataset:
         - get_batches: Generate batches.
     '''
     def __init__(self, ML_dataset, input_channels, output_channels, 
-                 coeff_channels=None, ds_norm=None):
+                 coeff_channels=None, ds_norm=None, use_coeff_channels=False):
         self.input_channels = input_channels
         self.output_channels = output_channels
         self.coeff_channels = coeff_channels
+        self.use_coeff_channels = use_coeff_channels
         self.ds_norm = ds_norm
         
         # Preprocess the entire dataset
@@ -723,7 +730,7 @@ class MLJAXDataset:
         
         # Xp is set at 1, or the product of the coefficient channels. 
         # So to take the square you would have to pass channel twice.
-        if (self.coeff_channels is not None) and (len(self.coeff_channels) > 0):
+        if (self.coeff_channels is not None) and (len(self.coeff_channels) > 0) and (self.use_coeff_channels):
             Xp_xr = batch[self.coeff_channels[0]].copy()
             for var in self.coeff_channels[1:]:
                 Xp_xr = Xp_xr * batch[var]

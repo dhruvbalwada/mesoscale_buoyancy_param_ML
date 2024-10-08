@@ -11,6 +11,7 @@ from flax import linen as nn
 from jax import numpy as jnp
 import xarray as xr
 import orbax.checkpoint
+import wandb
 from functools import partial
 
 
@@ -170,7 +171,7 @@ class AnnRegressionSystem:
         
         return loss_val
 
-    def train_system(self, ML_data, num_epoch, print_freq=20): 
+    def train_system(self, ML_data, num_epoch, print_freq=20, use_wandb=False): 
         '''
         This function trains the ML model using the data in ML_data.
         Input:
@@ -198,7 +199,9 @@ class AnnRegressionSystem:
                 
             self.test_loss = np.append(self.test_loss, np.mean(loss_temp))
 
-        
+            if use_wandb:
+                wandb.log({'epoch': self.epoch, 'train_loss': self.train_loss[-1], 'test_loss': self.test_loss[-1]})
+
             if i % print_freq  == 0:
                 print(f'At epoch {self.epoch}. Train loss : ', self.train_loss[-1], f', Test loss:', self.test_loss[-1])
 
