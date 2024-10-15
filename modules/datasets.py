@@ -204,20 +204,75 @@ class SimulationData:
         self.simulation_data = self.simulation_data.map_over_subtree(mask_data_variables)
             
 
-    def add_variables(self, add_filter_scale=True, add_mask=True, 
+    def add_variables(self, add_filter_scale=True, add_mask=True, add_deformation_radius=True,
                             add_middle_interface=True,  add_layer_decomposition=True):
         '''
         To add variables that don't already exist in the dataset.
         Examples can be length scales, some grid related variable, or some variables that are derived from existing variables.
+        
+        In some future iterations, some of these calculations can be moved over to the data generation steps.
         '''
         # Add length scales
         if add_mask:
             self.generate_h_mask()
             
         # Add filter scales
+        def calculate_filter_scale(ds, FGR=5):
+            ds = ds.copy()
+            
+            if ds.attrs['simulation_name'] == 'DG':
+                dx = 110e3* ds.xh.diff('xh')[0].values * np.cos(ds.yh*np.pi/180)
+                dy = 110e3* ds.yh.diff('yh')[0].values 
+
+                area = dx*dy
+                L = np.sqrt(area)
+
+                L_map = L*(0.*ds.hbar.isel(Time=0, zl=0)+1.)
+
+                ds['filter_scale'] = L_map*FGR
+
+            elif ds.attrs['simulation_name'] == 'P2L':
+                dx = 1e3* ds.xh.diff('xh')[0].values 
+                dy = 1e3* ds.yh.diff('yh')[0].values 
+
+                area = dx*dy
+                L = np.sqrt(area)
+
+                L_map = (0.*ds.hbar+1.)*L
+
+                ds['filter_scale'] = L_map*FGR
+
+            return ds
+
         if add_filter_scale:
             #self.ml_input_dataset = self.ml_input_dataset.map_over_subtree(lambda n: n.assign(filter_scale = float(n.attrs['filter_scale'])*1e3 + 0.*n.dudx))
-            self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(filter_scale = float(n.attrs['filter_scale'])*1e3 + 0.*n.dudx))
+            #self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(filter_scale = float(n.attrs['filter_scale'])*1e3 + 0.*n.dudx))
+            self.simulation_data = self.simulation_data.map_over_subtree(calculate_filter_scale)
+
+        # Add deformation radius
+        def calculate_deformation_radius(ds):
+            ds = ds.copy()
+
+            if ds.attrs['simulation_name'] == 'DG':
+                f = 2 * 2*np.pi/(24*3600) * np.sin(ds.yh * np.pi/180)
+            elif ds.attrs['simulation_name'] =='P2L':
+                F_0 = 6.49E-05
+                BETA = 2.0E-11
+                f = F_0 + BETA * ds.yh
+
+            g = 9.8
+            gp = ((ds.zl[1] - ds.zl[0])/ds.zl[0] * g).values
+            
+            cg = np.sqrt(gp * ds.hbar.isel(zl=0) * ds.hbar.isel(zl=1) / (ds.hbar.isel(zl=0) + ds.hbar.isel(zl=1)))
+
+            Rd = cg/f # forumula 4 in Hallberg et al 2013
+
+            ds['Rd'] = Rd
+
+            return ds
+
+        if add_deformation_radius:
+            self.simulation_data = self.simulation_data.map_over_subtree(calculate_deformation_radius)
 
         # Add middle interface as a variable
         if add_middle_interface:
@@ -250,6 +305,7 @@ class SimulationData:
         
         if add_layer_decomposition: 
             self.simulation_data = self.simulation_data.map_over_subtree(decompose_layer_thickness_gradients)
+
 
 
     def create_wider_stencil(self, variables_to_widen=['dudx','dvdx','dudy','dvdy','dhdx','dhdy','dhbardx','dhbardy','dedx_middle', 'dedy_middle'], not_replace=True):
@@ -420,6 +476,9 @@ class SimulationData:
             for var_name in flux_vars:
                 ds[var_name+'_nondim'] = ds[var_name]/ds['mag_nabla_u_widened']/(ds['filter_scale']**2)
 
+            # Normalize deformation radius
+            ds['Rd_nondim'] = ds['Rd']/ds['filter_scale']
+
             return ds
 
         #self.simulation_data = self.simulation_data.map_over_subtree(calc_magnitudes)
@@ -492,6 +551,7 @@ class MLXarrayDataset:
                  all_ml_variables  = ['dudx','dvdx','dudy','dvdy','dhdx','dhdy','uphp','vphp'],
                  use_mask         = True,
                  time_range= slice(0, 20),
+                 zl_range = slice(0, 2),
                  default_create = True,
                  num_batches=None):
 
@@ -502,6 +562,7 @@ class MLXarrayDataset:
         self.ml_variables = all_ml_variables
         
         self.time_range = time_range
+        self.zl_range = zl_range
         self.default_create = default_create
         
         if use_mask: 
@@ -529,6 +590,12 @@ class MLXarrayDataset:
         Sub-sample in time.
         '''
         self.ml_dataset = self.ml_dataset.isel(Time=self.time_range)
+
+    def select_depth_levels(self):
+        '''
+        Select depth levels to train on.
+        '''
+        self.ml_dataset = self.ml_dataset.isel(zl=self.zl_range)
 
     def subsample_ml_variables_horizontally(self): 
         '''
@@ -637,7 +704,10 @@ class MLXarrayDataset:
         # Sub-sample in time 
         #self.ml_dataset = self.ml_dataset.isel(Time=self.time_range)
         self.subsample_ml_variables_time()
-    
+
+        # Select depth levels to train on
+        self.select_depth_levels()
+        
         # We want to subsample the domain, since the datasets are not uniformly resolved.
         self.subsample_ml_variables_horizontally()
         

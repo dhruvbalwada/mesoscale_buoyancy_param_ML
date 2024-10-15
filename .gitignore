@@ -10,3 +10,5 @@ ckpts*
 __pycache__
 data
 *ckpts*
+ML_checkpoints
+ML_model_ncs

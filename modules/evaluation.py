@@ -15,6 +15,7 @@ class EvalSystem:
                  input_channels,
                  output_channels,
                  coeff_channels,
+                 extra_channels,
                  ds_norm_factors,
                  eval_time_slice,
                  num_inputs,
@@ -26,6 +27,7 @@ class EvalSystem:
         self.input_channels = input_channels
         self.output_channels = output_channels
         self.coeff_channels = coeff_channels
+        self.extra_channels = extra_channels
         self.use_coeff_channels = use_coeff_channels
         self.ds_norm_factors = ds_norm_factors
         self.eval_time_slice = eval_time_slice
@@ -52,7 +54,7 @@ class EvalSystem:
         '''
         '''
         self.eval_datatree = datasets.MLXarrayDataset(simulation_data=self.simulation_data,
-                                                      all_ml_variables=self.input_channels + self.output_channels + self.coeff_channels,
+                                                      all_ml_variables=self.input_channels + self.output_channels + self.coeff_channels + self.extra_channels,
                                                       time_range=self.eval_time_slice,
                                                       default_create=False)
         
@@ -68,16 +70,24 @@ class EvalSystem:
             output_ds = ml_ds[self.output_channels]
             coeff_ds = ml_ds[self.coeff_channels]
 
+            # Ensure all DataArrays in input_ds have the sample dimensions
+            sample_dims = ['Time', 'zl', 'yh', 'xh']
+            for var in input_ds.data_vars:
+                for dim in sample_dims:
+                    if dim not in input_ds[var].dims:
+                        input_ds[var] = input_ds[var].broadcast_like(ml_ds[sample_dims])
+
+
             input_normed_ds = input_ds/self.ds_norm_factors
             output_normed_ds = output_ds/self.ds_norm_factors
 
-            X_xr = input_normed_ds.to_stacked_array("input_features", sample_dims=['Time', 'zl', 'yh', 'xh'])
+            X_xr = input_normed_ds.to_stacked_array("input_features", sample_dims=sample_dims)
             y_xr = output_normed_ds.to_array().transpose('Time', 'zl', 'yh', 'xh', 'variable')
 
             if (len(self.coeff_channels) > 0) and (self.use_coeff_channels):
-                Xp_xr = batch[self.coeff_channels[0]].copy()
+                Xp_xr = coeff_ds[self.coeff_channels[0]].copy()
                 for var in self.coeff_channels[1:]:
-                    Xp_xr = Xp_xr * batch[var]
+                    Xp_xr = Xp_xr * coeff_ds[var]
                     #Xp = jnp.asarray(Xp_xr.data.reshape(-1, 1))
             else:
                 Xp_xr = 0.*y_xr.copy() + 1.
@@ -102,6 +112,17 @@ class EvalSystem:
 
     def dimensionalize(self): 
 
+        def dimensionalize_for_dataset(ds): 
+            ml_ds = ds.copy()
+
+            #for var in ['uphp', 'vphp']: 
+            #    ml_ds[var] = ml_ds[var] * self.ds_norm_factors[var]
+            ml_ds['uphp_pred'] = ml_ds['uphp_nondim_pred'] * ml_ds['mag_nabla_u_widened'] * ml_ds['filter_scale']**2
+            ml_ds['vphp_pred'] = ml_ds['vphp_nondim_pred'] * ml_ds['mag_nabla_u_widened'] * ml_ds['filter_scale']**2
+
+            return ml_ds
+        
+        self.eval_datatree.ml_dataset = self.eval_datatree.ml_dataset.map_over_subtree(dimensionalize_for_dataset)
 
 # Methods to evaluate the model
 
