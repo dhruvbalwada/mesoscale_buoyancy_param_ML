@@ -111,16 +111,21 @@ class AnnRegressionSystem:
         train_system: Trains the model.
     '''
 
-    def __init__(self, network, learning_rate=0.01, optimizer='adam'):
+    def __init__(self, network, learning_rate=0.01, optimizer='adam', loss_type='mse'):
 
         self.network = network
         self.learning_rate = learning_rate
         self.optimizer = optimizer
-        
+        self.loss_type = loss_type
+
         self.train_loss = np.array([])
         self.test_loss  = np.array([])
+        self.test_R2    = np.array([])
         
-        self.criterion = jax.value_and_grad(self.mse, argnums=0)
+        if self.loss_type == 'mse':
+            self.criterion = jax.value_and_grad(self.mse, argnums=0)
+        elif self.loss_type == 'mae':
+            self.criterion = jax.value_and_grad(self.mae, argnums=0)
         
         self.setup_optimizer()
         
@@ -150,6 +155,31 @@ class AnnRegressionSystem:
             return jnp.inner(y-pred, y-pred) / 2.0
     
         return jnp.nanmean(jax.vmap(squared_error)(x_batched, y_batched, xp_batched), axis=0)
+    
+    def mae(self, params, x_batched, y_batched, xp_batched):
+        '''
+        This is the MAE loss with an extra multiplier that can be sample dependent or 1. 
+        When 1, this reverts to regular MAE loss. 
+        '''
+        # Define squared loss for a single pair (x,y), where y can be a vector (multi-dim output) 
+        def abs_error(x,y,xp):
+            pred = self.state.apply_fn(params, x) * xp
+            return jnp.mean(jnp.abs(y-pred))
+    
+        return jnp.nanmean(jax.vmap(abs_error)(x_batched, y_batched, xp_batched), axis=0)
+
+    def R2(self, params, x_batched, y_batched, xp_batched):
+        '''
+        This function computes the R2 score.
+        '''
+        def squared_error(x,y,xp):
+            pred = self.state.apply_fn(params, x) * xp
+            return jnp.inner(y-pred, y-pred) / 2.0
+        
+        def total_error(y):
+            return jnp.inner(y-jnp.mean(y), y-jnp.mean(y)) / 2.0
+        
+        return 1 - jnp.nanmean(jax.vmap(squared_error)(x_batched, y_batched, xp_batched), axis=0) / jnp.nanmean(jax.vmap(total_error)(y_batched), axis=0)
 
     #@partial(jax.jit, static_argnums=(0, 2)) # this does not work. Why? 
     def step(self, batch, kind='test'):
@@ -168,8 +198,10 @@ class AnnRegressionSystem:
         
         if kind == 'train':
             self.state = self.state.apply_gradients(grads=grads)
+            return loss_val
+        elif kind == 'test':
+            return loss_val, self.R2(self.state.params, X, y, Xp)
         
-        return loss_val
 
     def train_system(self, ML_data, num_epoch, print_freq=20, use_wandb=False): 
         '''
@@ -192,18 +224,21 @@ class AnnRegressionSystem:
 
             #testing
             loss_temp = np.array([])
+            R2_temp = np.array([])
             for batch in ML_data['test_data'].get_batches():
-                loss = self.step(batch, kind='test')
+                loss, R2 = self.step(batch, kind='test')
 
                 loss_temp = np.append(loss_temp, loss)
+                R2_temp = np.append(R2_temp, R2)
                 
             self.test_loss = np.append(self.test_loss, np.mean(loss_temp))
+            self.test_R2 = np.append(self.test_R2, np.mean(R2_temp))
 
             if use_wandb:
-                wandb.log({'epoch': self.epoch, 'train_loss': self.train_loss[-1], 'test_loss': self.test_loss[-1]})
+                wandb.log({'epoch': self.epoch, 'train_loss': self.train_loss[-1], 'test_loss': self.test_loss[-1], 'test_R2': self.test_R2[-1]})
 
             if i % print_freq  == 0:
-                print(f'At epoch {self.epoch}. Train loss : ', self.train_loss[-1], f', Test loss:', self.test_loss[-1])
+                print(f'At epoch {self.epoch}. Train loss : ', self.train_loss[-1], f', Test loss:', self.test_loss[-1], f', Test R2:', self.test_R2[-1])
 
         return 
 

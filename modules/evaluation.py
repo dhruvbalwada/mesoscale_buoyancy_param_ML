@@ -142,7 +142,7 @@ class EvalSystem:
         - float: The R-squared value.
         """
         RSS = ((pred - true) ** 2).mean(dims)
-        TSS = ((true) ** 2).mean(dims)
+        TSS = ((true - true.mean(dims)) ** 2).mean(dims)
 
         
         R2 = 1 - RSS / TSS

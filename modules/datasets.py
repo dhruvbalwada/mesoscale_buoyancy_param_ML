@@ -1,12 +1,11 @@
 import xarray as xr
+#from xarray import open_datatree, DataTree
 from datatree import open_datatree, DataTree
 import xgcm
 import helper_func as hf
 import xbatcher
 import random
 import numpy as np
-from datatree import DataTree
-from datatree import open_datatree
 import time
 import jax.numpy as jnp
 
@@ -179,8 +178,18 @@ class SimulationData:
         Often we need a thickness based mask :
             Don't consider points where the thickness is too small.
         '''
-        self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(h_mask = (n[thickness_variable]>= thin_limit) ))
+        # def make_mask(ds):
+        #     ds = ds.copy()
+        #     print(ds)
+        #     try: 
+        #         h_mask = (ds[thickness_variable] >= thin_limit).astype(bool)
 
+        #         return ds.assign(h_mask=h_mask)
+        #     except:
+        #         return ds
+    
+        self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(h_mask = (n[thickness_variable]>= thin_limit) ))
+        #self.simulation_data = self.simulation_data.map_over_subtree(make_mask)
 
     def single_layer_mask(self, thin_limit = 20):
         '''
