@@ -15,12 +15,12 @@ class EvalSystem:
                  input_channels,
                  output_channels,
                  coeff_channels,
-                 extra_channels,
                  ds_norm_factors,
                  eval_time_slice,
                  num_inputs,
                  shape,
                  ckpt_dir, 
+                 extra_channels=[],
                  use_coeff_channels=False):
 
         self.simulation_data = simulation_data 

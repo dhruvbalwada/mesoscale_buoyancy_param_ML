@@ -1,6 +1,7 @@
 import xarray as xr
 #from xarray import open_datatree, DataTree
-from datatree import open_datatree, DataTree
+# temporary fix for the datatree import is to `pip install xarray-datatree`
+from datatree import open_datatree, DataTree 
 import xgcm
 import helper_func as hf
 import xbatcher
@@ -13,7 +14,7 @@ seed = 42
 
 ### --- General functions for reading xarray dataarrays and opening as datatrees
 
-def read_filtered_dataset(exp_name='DG', scale='100', assign_attrs=True): 
+def read_filtered_dataset(exp_name='DG', scale='100', assign_attrs=True, remove_edge=True): 
     '''
     Read data prepared for ml using filtering
     from zarr store and return xarray dataset object.
@@ -38,6 +39,9 @@ def read_filtered_dataset(exp_name='DG', scale='100', assign_attrs=True):
         
     fname = f'{MOM6_bucket}{ml_start}{scale}{ml_end}'
     ds = xr.open_zarr(fname)
+
+    if remove_edge: 
+        ds = ds.isel(yh=slice(1,-1))
     
     if assign_attrs:
         # Example attributes to assign
@@ -89,6 +93,7 @@ def calculate_magnitudes(dtree):
     dtree = dtree.map_over_subtree(lambda ds: ds.assign(magGradH = (ds.dhdx**2 + ds.dhdy**2)**0.5))
     dtree = dtree.map_over_subtree(lambda ds: ds.assign(magGradE = (ds.dedx**2 + ds.dedy**2)**0.5))
     dtree = dtree.map_over_subtree(lambda ds: ds.assign(magHFlux = (ds.uphp**2 + ds.vphp**2)**0.5))
+    dtree = dtree.map_over_subtree(lambda ds: ds.assign(magHFlux_sum = (ds.uphp.sum('zl')**2 + ds.vphp.sum('zl')**2)**0.5))
     
     # The map_over_subtree magically replaces the loop below.
     
@@ -113,6 +118,7 @@ def calculate_magnitudes(dtree):
     return dtree
 
 
+
 ### ----- Classes and methods for ML related things Regular data -> training ready ML data 
 
 class SimulationData:
@@ -127,6 +133,10 @@ class SimulationData:
         - simulation_names: List of simulation names to read in
         - filter_scales: List of filter scales to read in
         - simulation_data: xarray DataTree object with simulation data
+        - single_layer_mask: Boolean to determine whether to remove data where there is only once ocean layer
+        - preprocess: Boolean to determine whether to apply a set of default operations to pre-process the data
+        - time_sel: Slice object to select a time range (should include both train and test range)
+        - nlayers: Number of layers in the simulation data
 
     Methods:
         - load_simulation_data: Open up simulation data as a DataTree
@@ -144,12 +154,15 @@ class SimulationData:
                  filter_scales    = ['50','100','200','400'] ,
                  window_size = 1,
                  preprocess = True,
-                 single_layer_mask = True,
-                 time_sel = None):
+                 single_layer_mask_flag = True,
+                 time_sel = None,
+                 nlayers = 2):
 
         self.simulation_names = simulation_names
         self.filter_scales = filter_scales
         self.window_size = window_size
+        self.nlayers = nlayers
+        self.single_layer_mask_flag = single_layer_mask_flag
         
         self.load_simulation_data()
 
@@ -157,7 +170,7 @@ class SimulationData:
             self.simulation_data = self.simulation_data.isel(Time=time_sel)
 
         if preprocess:
-            self.preprocess_simulation_data(single_layer_mask=single_layer_mask)
+            self.preprocess_simulation_data()
         
 
     def load_simulation_data(self):
@@ -291,7 +304,7 @@ class SimulationData:
             self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedy_middle = np.sign(n.zl - n.zl.mean()) * (n.dedy.isel(zi=1) + 0.*n.dhdy) ))
         
         # Decompose layer thickness gradients into steady and unsteady components.
-        def decompose_layer_thickness_gradients(ds):
+        def decompose_2_layer_thickness_gradients(ds):
             ds = ds.copy()
             
             dhbardx = xr.DataArray(np.zeros_like(ds.dhdx), dims=ds.dhdx.dims, coords=ds.dhdx.coords)
@@ -300,6 +313,9 @@ class SimulationData:
             # This does not work in this case. 
             #dhbardx = 0.*ds.dhdx
             #dhbardy = 0.*ds.dhdy
+            
+            dhbardx.isel(zl=0)[:] = -ds.dedx.isel(zi=-1) * (1-ds.h_mask.isel(zl=1))
+            dhbardy.isel(zl=0)[:] = -ds.dedy.isel(zi=-1) * (1-ds.h_mask.isel(zl=1))
 
             dhbardx.isel(zl=1)[:] = -ds.dedx.isel(zi=-1)
             dhbardy.isel(zl=1)[:] = -ds.dedy.isel(zi=-1)
@@ -307,13 +323,16 @@ class SimulationData:
             ds['dhbardx'] = dhbardx
             ds['dhbardy'] = dhbardy
 
-            ds['dhdx'] = ds['dhdx'] - ds['dhbardx']
-            ds['dhdy'] = ds['dhdy'] - ds['dhbardy']
-          
+            ds['dhdx'] = (ds['dhdx'] - ds['dhbardx'])*ds.h_mask
+            ds['dhdy'] = (ds['dhdy'] - ds['dhbardy'])*ds.h_mask
+ 
             return ds
         
         if add_layer_decomposition: 
-            self.simulation_data = self.simulation_data.map_over_subtree(decompose_layer_thickness_gradients)
+            if self.nlayers == 2:
+                self.simulation_data = self.simulation_data.map_over_subtree(decompose_2_layer_thickness_gradients)
+            else:
+                print("warning: Layer decomposition not applied, as simulation has more than 2 layer.")
 
 
 
@@ -439,7 +458,7 @@ class SimulationData:
             ds = ds.copy()
 
             ds['mag_nabla_u'] = (ds.dudx**2 + ds.dudy**2 + ds.dvdx**2 + ds.dvdy**2)**0.5
-            ds['mag_nabla_u_widened'] = ((ds.dudx_widened**2 + ds.dudy_widened**2 + ds.dvdx_widened**2 + ds.dvdy_widened**2).sum(['Xn','Yn']))**0.5
+            ds['mag_nabla_u_widened'] = ((ds.dudx_widened**2 + ds.dudy_widened**2 + ds.dvdx_widened**2 + ds.dvdy_widened**2).sum(['Xn','Yn']))**0.5 # sum is appropriate as it will ensure that all the normalized components will be less than 1. 
             ds['mag_nabla_h'] = (ds.dhdx**2 + ds.dhdy**2)**0.5
             ds['mag_nabla_h_widened'] = ((ds.dhdx_widened**2 + ds.dhdy_widened**2).sum(['Xn','Yn']))**0.5
 
@@ -478,12 +497,12 @@ class SimulationData:
             # Normalize fluxes
             flux_vars = ['uphp_rotated', 'vphp_rotated']
             for var_name in flux_vars:
-                ds[var_name+'_nondim'] = ds[var_name]/ds['mag_nabla_u_widened']/(ds['filter_scale']**2)
+                ds[var_name+'_nondim'] = ds[var_name]/ds['mag_nabla_u_widened']/ds['mag_nabla_h_widened']/(ds['filter_scale']**2)
 
             # Normalize fluxes
             flux_vars = ['uphp', 'vphp']
             for var_name in flux_vars:
-                ds[var_name+'_nondim'] = ds[var_name]/ds['mag_nabla_u_widened']/(ds['filter_scale']**2)
+                ds[var_name+'_nondim'] = ds[var_name]/ds['mag_nabla_u_widened']//ds['mag_nabla_h_widened']/(ds['filter_scale']**2)
 
             # Normalize deformation radius
             ds['Rd_nondim'] = ds['Rd']/ds['filter_scale']
@@ -515,7 +534,7 @@ class SimulationData:
         self.rotate_frame()
         self.nondimensionalize()
         # The step below adds a massive time overhead.
-        if single_layer_mask:
+        if self.single_layer_mask_flag:
             self.single_layer_mask()
 
         # Maybe splitting default_preprocess_pipeline from create_ML_variables
@@ -568,7 +587,7 @@ class MLXarrayDataset:
         self.simulation_data = simulation_data.simulation_data
         self.window_size = simulation_data.window_size
         # ml_variables should be a list of all variables that will be needed in the ml (inputs, outputs, masks, coordinates, etc).
-        self.ml_variables = all_ml_variables
+        self.ml_variables = all_ml_variables.copy()
         
         self.time_range = time_range
         self.zl_range = zl_range
