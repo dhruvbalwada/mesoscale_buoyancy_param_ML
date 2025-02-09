@@ -13,6 +13,7 @@ import xarray as xr
 import orbax.checkpoint
 import wandb
 from functools import partial
+import collections
 
 
 ######################## New ########################
@@ -83,7 +84,7 @@ class PointwiseANN:
 
     def count_parameters(self):
         param_count = sum(x.size for x in jax.tree_util.tree_leaves(self.params))
-        print(param_count)
+        return param_count
   
 class AnnRegressionSystem:
     '''
@@ -202,15 +203,21 @@ class AnnRegressionSystem:
         elif kind == 'test':
             return loss_val, self.R2(self.state.params, X, y, Xp)
         
-
-    def train_system(self, ML_data, num_epoch, print_freq=20, use_wandb=False): 
+    def train_system(self, ML_data, num_epoch, print_freq=20, use_wandb=False,
+                     patience=10, smoothing_window=5, min_relative_improvement=0.01): 
         '''
         This function trains the ML model using the data in ML_data.
         Input:
             ML_data: A dictionary containing the training and testing data.
             num_epoch: Number of epochs to train the model.
             print_freq: Frequency at which the loss is printed.
+            Patience incorporated using: https://chatgpt.com/share/67a3755f-e240-800d-86be-5f96419ad717
         '''
+        best_loss = float(1e6)  # Initialize best loss to a large value
+        best_state = None  
+        epochs_since_improvement = 0  
+        test_loss_queue = collections.deque(maxlen=smoothing_window)  # Store past losses for smoothing
+
         for i in range(num_epoch): 
             self.epoch = self.epoch + 1
 
@@ -231,14 +238,40 @@ class AnnRegressionSystem:
                 loss_temp = np.append(loss_temp, loss)
                 R2_temp = np.append(R2_temp, R2)
                 
+            
             self.test_loss = np.append(self.test_loss, np.mean(loss_temp))
+            test_loss_queue.append(self.test_loss[-1]) 
             self.test_R2 = np.append(self.test_R2, np.mean(R2_temp))
+
+            smoothed_loss = np.mean(test_loss_queue) if len(test_loss_queue) == smoothing_window else self.test_loss[-1] 
+            #print(test_loss_queue , smoothed_loss)
 
             if use_wandb:
                 wandb.log({'epoch': self.epoch, 'train_loss': self.train_loss[-1], 'test_loss': self.test_loss[-1], 'test_R2': self.test_R2[-1]})
 
             if i % print_freq  == 0:
                 print(f'At epoch {self.epoch}. Train loss : ', self.train_loss[-1], f', Test loss:', self.test_loss[-1], f', Test R2:', self.test_R2[-1])
+
+            # Early Stopping Check
+            relative_improvement = (best_loss - smoothed_loss) / best_loss if best_loss > 0 else float(1e6)
+           # print(relative_improvement, epochs_since_improvement)
+            #print(smoothed_loss, best_loss)
+            if relative_improvement > min_relative_improvement:
+                best_loss = smoothed_loss
+                best_state = self.state  # Store best model state
+                epochs_since_improvement = 0  # Reset patience counter
+            else:
+                epochs_since_improvement += 1
+
+            # Stop if patience is exceeded
+            if epochs_since_improvement >= patience:
+                print(f"Early stopping at epoch {self.epoch}. No improvement in {patience} epochs.")
+                break
+
+        # Restore best model parameters
+        if best_state is not None:
+            self.state = best_state
+            print(f"Restored best model with smoothed test loss {best_loss:.6f}")
 
         return 
 
@@ -278,13 +311,14 @@ class AnnRegressionSystem:
         self.train_loss = restored_dic['train_loss']
         self.test_loss = restored_dic['test_loss']
         self.epoch = restored_dic['epoch']
-
-            
+         
     def pred(self, X, Xp):
         '''
         This function predicts the output of the model for the input X, with multiplier Xp.
         '''
-        return self.state.apply_fn(self.state.params, X) * Xp
+        return Xp * self.state.apply_fn(self.state.params, X) 
+
+
 
 ######################## Old ########################
 ## Kept here for backward compatibility. ##
@@ -302,7 +336,7 @@ class RegressionSystem:
         if local_norm==False:
             self.criterion = jax.value_and_grad(ml_hf.mse)
         elif (local_norm == True) & (diffuse==True): 
-            print('here')
+            #print('here')
             self.criterion = jax.value_and_grad(ml_hf.mse_local_norm_diffuse)
         else:
             self.criterion = jax.value_and_grad(ml_hf.mse_local_norm)

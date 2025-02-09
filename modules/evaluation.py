@@ -14,13 +14,14 @@ class EvalSystem:
                  simulation_data, 
                  input_channels,
                  output_channels,
-                 coeff_channels,
-                 ds_norm_factors,
+                 coeff_channels,                 
                  eval_time_slice,
                  num_inputs,
                  shape,
                  ckpt_dir, 
                  extra_channels=[],
+                 use_norm_factors=True,
+                 ds_norm_factors=None,
                  use_coeff_channels=False):
 
         self.simulation_data = simulation_data 
@@ -29,7 +30,11 @@ class EvalSystem:
         self.coeff_channels = coeff_channels
         self.extra_channels = extra_channels
         self.use_coeff_channels = use_coeff_channels
-        self.ds_norm_factors = ds_norm_factors
+        self.use_norm_factors = use_norm_factors
+        if self.use_norm_factors and ds_norm_factors is None:
+            self.ds_norm_factors = simulation_data.ds_norm
+        else:
+            print("Not implemented the non-use of norm factors")
         self.eval_time_slice = eval_time_slice
         self.num_inputs = num_inputs
         self.shape = shape
@@ -70,41 +75,50 @@ class EvalSystem:
             output_ds = ml_ds[self.output_channels]
             coeff_ds = ml_ds[self.coeff_channels]
 
+            
             # Ensure all DataArrays in input_ds have the sample dimensions
             sample_dims = ['Time', 'zl', 'yh', 'xh']
             for var in input_ds.data_vars:
                 for dim in sample_dims:
                     if dim not in input_ds[var].dims:
                         input_ds[var] = input_ds[var].broadcast_like(ml_ds[sample_dims])
+            
+
+            for var in coeff_ds.data_vars:
+                for dim in sample_dims:
+                    if dim not in coeff_ds[var].dims:
+                        coeff_ds[var] = coeff_ds[var].broadcast_like(ml_ds[sample_dims])
 
 
             input_normed_ds = input_ds/self.ds_norm_factors
             output_normed_ds = output_ds/self.ds_norm_factors
+            coeff_normed_ds = coeff_ds/self.ds_norm_factors 
 
             X_xr = input_normed_ds.to_stacked_array("input_features", sample_dims=sample_dims)
             y_xr = output_normed_ds.to_array().transpose('Time', 'zl', 'yh', 'xh', 'variable')
 
+        
             if (len(self.coeff_channels) > 0) and (self.use_coeff_channels):
-                Xp_xr = coeff_ds[self.coeff_channels[0]].copy()
+                Xp_xr = coeff_normed_ds[self.coeff_channels[0]].copy()
                 for var in self.coeff_channels[1:]:
-                    Xp_xr = Xp_xr * coeff_ds[var]
-                    #Xp = jnp.asarray(Xp_xr.data.reshape(-1, 1))
+                    Xp_xr = Xp_xr * coeff_normed_ds[var]
+                    
+                Xp_xr = Xp_xr + (0.* y_xr.copy())
+
             else:
                 Xp_xr = 0.*y_xr.copy() + 1.
-                    #Xp = jnp.asarray(Xp_xr.data)
-            
-            #Xp_xr = 0. * y_xr.copy() + 1.
-
+           
             y_pred_xr = self.regress_sys.pred(X_xr, Xp_xr)
 
             pred_xr = y_pred_xr.to_dataset(dim='variable') * self.ds_norm_factors
+           
 
             # Create a dictionary mapping old variable names to new variable names with '_pred' suffix
             rename_dict = {var: f"{var}_pred" for var in pred_xr.data_vars}
-
+            
             # Rename the variables in the dataset
             pred_xr = pred_xr.rename(rename_dict)
-
+            
             ml_ds = ml_ds.update(pred_xr)
 
             return ml_ds
@@ -117,12 +131,79 @@ class EvalSystem:
 
             #for var in ['uphp', 'vphp']: 
             #    ml_ds[var] = ml_ds[var] * self.ds_norm_factors[var]
-            ml_ds['uphp_pred'] = ml_ds['uphp_nondim_pred'] * ml_ds['mag_nabla_u_widened'] * ml_ds['filter_scale']**2
-            ml_ds['vphp_pred'] = ml_ds['vphp_nondim_pred'] * ml_ds['mag_nabla_u_widened'] * ml_ds['filter_scale']**2
-
+            
+            ml_ds['uphp_rotated_pred'] = ml_ds['uphp_rotated_nondim_pred'] * ml_ds['mag_nabla_u_widened'] * ml_ds['mag_nabla_h_widened'] * ml_ds['filter_scale']**2
+            ml_ds['vphp_rotated_pred'] = ml_ds['vphp_rotated_nondim_pred'] * ml_ds['mag_nabla_u_widened'] * ml_ds['mag_nabla_h_widened'] * ml_ds['filter_scale']**2
+            
             return ml_ds
         
         self.eval_datatree.ml_dataset = self.eval_datatree.ml_dataset.map_over_subtree(dimensionalize_for_dataset)
+
+    def add_gradient_model_variables(self):
+
+        def gradient_model(ml_ds):
+            
+            ml_ds = ml_ds.copy()
+
+            sim_ds = self.simulation_data.simulation_data[ml_ds.simulation_name][ml_ds.attrs['filter_scale']]
+
+            mid_point = int(np.floor(self.simulation_data.window_size/2))
+
+            
+            ml_ds['uphp_rotated_grad_model'] = sim_ds.filter_scale**2 * (sim_ds['dudx_widened_rotated'].isel(Xn=mid_point, Yn=mid_point) * 
+                                                            sim_ds['dhdx_widened_rotated'].isel(Xn=mid_point, Yn=mid_point) + 
+                                                            sim_ds['dudy_widened_rotated'].isel(Xn=mid_point, Yn=mid_point) * 
+                                                            sim_ds['dhdy_widened_rotated'].isel(Xn=mid_point, Yn=mid_point))
+            
+            ml_ds['vphp_rotated_grad_model'] = sim_ds.filter_scale**2 * (sim_ds['dvdx_widened_rotated'].isel(Xn=mid_point, Yn=mid_point) * 
+                                                            sim_ds['dhdx_widened_rotated'].isel(Xn=mid_point, Yn=mid_point) + 
+                                                            sim_ds['dvdy_widened_rotated'].isel(Xn=mid_point, Yn=mid_point) * 
+                                                            sim_ds['dhdy_widened_rotated'].isel(Xn=mid_point, Yn=mid_point))
+            
+            # determine coefficient 
+            A = ml_ds['uphp_rotated']
+            B = ml_ds['uphp_rotated_grad_model']
+            C = ml_ds['vphp_rotated']
+            D = ml_ds['vphp_rotated_grad_model']
+
+            c = ((A * B).sum(skipna=True) + (C * D).sum(skipna=True)) / ((B**2).sum(skipna=True) + (D**2).sum(skipna=True))
+
+            ml_ds['uphp_rotated_grad_model'] = c * ml_ds['uphp_rotated_grad_model']
+            ml_ds['vphp_rotated_grad_model'] = c * ml_ds['vphp_rotated_grad_model']
+            ml_ds['c_grad_model'] = c
+
+            return ml_ds 
+        
+        self.eval_datatree.ml_dataset = self.eval_datatree.ml_dataset.map_over_subtree(gradient_model)
+        
+    def add_gent_mcwilliams_variables(self):
+
+        def gent_mcwilliams_model(ml_ds): 
+            ml_ds = ml_ds.copy()
+
+            sim_ds = self.simulation_data.simulation_data[ml_ds.simulation_name][ml_ds.attrs['filter_scale']]
+
+            mid_point = int(np.floor(self.simulation_data.window_size/2))
+
+            ml_ds['uphp_rotated_gent_mcwilliams'] = - sim_ds['dhdx_widened_rotated'].isel(Xn=mid_point, Yn=mid_point) 
+            ml_ds['vphp_rotated_gent_mcwilliams'] = - sim_ds['dhdy_widened_rotated'].isel(Xn=mid_point, Yn=mid_point)
+
+            # determine coefficient
+            A = ml_ds['uphp_rotated']
+            B = ml_ds['uphp_rotated_gent_mcwilliams']
+            # Only do this calculation for downgradient part of the flow
+            #C = ml_ds['uphp_rotated']
+            #D = ml_ds['uphp_rotated_gent_mcwilliams']
+
+            c = (A * B).sum(skipna=True)  / (B**2).sum(skipna=True) 
+
+            ml_ds['uphp_rotated_gent_mcwilliams'] = c * ml_ds['uphp_rotated_gent_mcwilliams']
+            ml_ds['vphp_rotated_gent_mcwilliams'] = c * ml_ds['vphp_rotated_gent_mcwilliams']
+            ml_ds['kappa_gent_mcwilliams'] = c
+
+            return ml_ds
+        
+        self.eval_datatree.ml_dataset = self.eval_datatree.ml_dataset.map_over_subtree(gent_mcwilliams_model)
 
 # Methods to evaluate the model
 

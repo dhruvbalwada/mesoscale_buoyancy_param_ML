@@ -156,14 +156,19 @@ class SimulationData:
                  preprocess = True,
                  single_layer_mask_flag = True,
                  time_sel = None,
-                 nlayers = 2):
+                 nlayers = 2,
+                 e_ugrad = 1e-18,
+                 e_hgrad = 1e-18):
 
         self.simulation_names = simulation_names
         self.filter_scales = filter_scales
         self.window_size = window_size
         self.nlayers = nlayers
         self.single_layer_mask_flag = single_layer_mask_flag
-        
+        self.e_ugrad = e_ugrad
+        self.e_hgrad = e_hgrad
+
+
         self.load_simulation_data()
 
         if time_sel is not None:
@@ -171,6 +176,40 @@ class SimulationData:
 
         if preprocess:
             self.preprocess_simulation_data()
+
+        normalize_data_dic = {
+                            'dudx': ([], 1e-6),  # scalar value
+                            'dvdx': ([], 1e-6),
+                            'dudy': ([], 1e-6),
+                            'dvdy': ([], 1e-6),
+                            'dhdx': ([], 1e-3),
+                            'dhdy': ([], 1e-3),
+                            'filter_scale': ([], 140e3),
+                            'uphp': ([], 4.),
+                            'vphp': ([], 4.),
+                            'dudx_widened': ([], 1e-6),  # scalar value
+                            'dvdx_widened': ([], 1e-6),
+                            'dudy_widened': ([], 1e-6),
+                            'dvdy_widened': ([], 1e-6),
+                            'dhdx_widened': ([], 1e-3),
+                            'dhdy_widened': ([], 1e-3),
+                            'dhdx_widened_rotated': ([], 1e-3),
+                            'dhdy_widened_rotated': ([], 1e-3),
+                            
+                            'dudx_widened_rotated_nondim': ([], 1.),  # scalar value
+                            'dvdx_widened_rotated_nondim': ([], 1.),
+                            'dudy_widened_rotated_nondim': ([], 1.),
+                            'dvdy_widened_rotated_nondim': ([], 1.),
+                            'dhdx_widened_rotated_nondim': ([], 1.),
+                            'dhdy_widened_rotated_nondim': ([], 1.),
+                            'mag_nabla_h_widened': ([], 1e-3 * self.window_size),
+                            'mag_nabla_u_widened': ([], 1e-6 * self.window_size),
+                            'uphp_rotated': ([], 1e-1 ),
+                            'vphp_rotated': ([], 1e-1 ),
+                            'uphp_rotated_nondim': ([], 1e-1 / self.window_size**2),
+                            'vphp_rotated_nondim': ([], 1e-1 / self.window_size**2),
+                            }      
+        self.ds_norm = xr.Dataset(normalize_data_dic)   
         
 
     def load_simulation_data(self):
@@ -183,7 +222,6 @@ class SimulationData:
         except:
             print("Error reading simulation data")
             
- 
     # Pre-processing methods
     ## These apply to individual datasets, which sit at end nodes of datatree. 
     def generate_h_mask(self, thin_limit = 20, thickness_variable='hbar'): 
@@ -225,7 +263,6 @@ class SimulationData:
         # Apply the mask to all variables in the dataset.
         self.simulation_data = self.simulation_data.map_over_subtree(mask_data_variables)
             
-
     def add_variables(self, add_filter_scale=True, add_mask=True, add_deformation_radius=True,
                             add_middle_interface=True,  add_layer_decomposition=True):
         '''
@@ -334,8 +371,6 @@ class SimulationData:
             else:
                 print("warning: Layer decomposition not applied, as simulation has more than 2 layer.")
 
-
-
     def create_wider_stencil(self, variables_to_widen=['dudx','dvdx','dudy','dvdy','dhdx','dhdy','dhbardx','dhbardy','dedx_middle', 'dedy_middle'], not_replace=True):
         '''
         Add a stencil of specified size around the prediction point for selected variables in the dataset.
@@ -378,8 +413,7 @@ class SimulationData:
 
         #self.ml_input_dataset = self.ml_input_dataset.map_over_subtree(widen_stencil)
         self.simulation_data = self.simulation_data.map_over_subtree(widen_stencil)
-
-       
+  
     def rotate_frame(self, frame_vector_vars = ['dhdx','dhdy']):
         '''
         Rotate variables from x-y coordinates to a flow dependent coordinate. 
@@ -389,8 +423,8 @@ class SimulationData:
         '''
        
         def rotate_vector(R_11, R_12, R_21, R_22, F_1, F_2): 
-            vec_That = R_11 * F_1 + R_21 * F_2
-            vec_Nhat = R_12 * F_1 + R_22 * F_2
+            vec_That = R_11 * F_1 + R_21 * F_2 # along the vector
+            vec_Nhat = R_12 * F_1 + R_22 * F_2 # across the vector
         
             return vec_That, vec_Nhat
 
@@ -423,9 +457,11 @@ class SimulationData:
             
             mag_frame_vector = (ds[frame_vector_vars[0]]**2 + ds[frame_vector_vars[1]]**2)**0.5
             
+            # Along the vector
             T_hat_i = ds[frame_vector_vars[0]]/ mag_frame_vector
             T_hat_j = ds[frame_vector_vars[1]]/ mag_frame_vector
 
+            # Across the vector
             N_hat_i = - T_hat_j
             N_hat_j =   T_hat_i
 
@@ -449,7 +485,6 @@ class SimulationData:
 
         self.simulation_data = self.simulation_data.map_over_subtree(apply_rotation_to_dataset)
         
-           
     def nondimensionalize(self):
         '''
         Non-dimensionalize input and output variables
@@ -474,6 +509,8 @@ class SimulationData:
             for var_name in tensor_vars:
                 ds[var_name+'_nondim'] = ds[var_name]/ds['mag_nabla_u']
 
+            
+
             # Normalize tensor variables
             tensor_vars = ['dudx_widened', 'dudy_widened', 'dvdx_widened', 'dvdy_widened']
             for var_name in tensor_vars:
@@ -484,6 +521,12 @@ class SimulationData:
             for var_name in tensor_vars:
                 ds[var_name+'_nondim'] = ds[var_name]/ds['mag_nabla_u_widened']
             
+            
+            # Normalize grad h 
+            vector_vars = ['dhdx', 'dhdy']
+            for var_name in vector_vars:
+                ds[var_name+'_nondim'] = ds[var_name]/ds['mag_nabla_h']
+
             # Normalize grad h 
             vector_vars = ['dhdx_widened', 'dhdy_widened']
             for var_name in vector_vars:
@@ -497,12 +540,12 @@ class SimulationData:
             # Normalize fluxes
             flux_vars = ['uphp_rotated', 'vphp_rotated']
             for var_name in flux_vars:
-                ds[var_name+'_nondim'] = ds[var_name]/ds['mag_nabla_u_widened']/ds['mag_nabla_h_widened']/(ds['filter_scale']**2)
+                ds[var_name+'_nondim'] = ds[var_name]/(ds['mag_nabla_u_widened']+self.e_ugrad)/(ds['mag_nabla_h_widened']+self.e_hgrad)/(ds['filter_scale']**2)
 
             # Normalize fluxes
             flux_vars = ['uphp', 'vphp']
             for var_name in flux_vars:
-                ds[var_name+'_nondim'] = ds[var_name]/ds['mag_nabla_u_widened']//ds['mag_nabla_h_widened']/(ds['filter_scale']**2)
+                ds[var_name+'_nondim'] = ds[var_name]/(ds['mag_nabla_u_widened']+self.e_ugrad)/(ds['mag_nabla_h_widened']+self.e_hgrad)/(ds['filter_scale']**2)
 
             # Normalize deformation radius
             ds['Rd_nondim'] = ds['Rd']/ds['filter_scale']
@@ -585,6 +628,7 @@ class MLXarrayDataset:
 
         self.LARGEST_FILTER_SCALE = int(simulation_data.filter_scales[-1])
         self.simulation_data = simulation_data.simulation_data
+        self.ds_norm = simulation_data.ds_norm
         self.window_size = simulation_data.window_size
         # ml_variables should be a list of all variables that will be needed in the ml (inputs, outputs, masks, coordinates, etc).
         self.ml_variables = all_ml_variables.copy()
@@ -794,7 +838,9 @@ class MLJAXDataset:
         - input_channels: List of input channels.
         - output_channels: List of output channels.
         - coeff_channels: List of coefficient channels.
-        - ds_norm: Normalization dataset.
+        - use_coeff_channels: Boolean to determine whether to use coefficient channels.
+        - do_normalize: Boolean to determine whether to normalize the dataset.
+        - ds_norm: Normalization dataset. (if not passed, the default normalization dictionary will be used)
         - preprocessed_data: List of preprocessed data.
     Methods:
         - preprocess_batch: Preprocess a batch of data.
@@ -802,12 +848,15 @@ class MLJAXDataset:
         - get_batches: Generate batches.
     '''
     def __init__(self, ML_dataset, input_channels, output_channels, 
-                 coeff_channels=None, ds_norm=None, use_coeff_channels=False):
+                 coeff_channels=None, do_normalize=True, ds_norm=None, use_coeff_channels=False):
         self.input_channels = input_channels
         self.output_channels = output_channels
         self.coeff_channels = coeff_channels
         self.use_coeff_channels = use_coeff_channels
-        self.ds_norm = ds_norm
+        if ds_norm is None:
+            self.ds_norm = ML_dataset.ds_norm
+        self.do_normalize = do_normalize
+        self.window_size = ML_dataset.window_size
         
         # Preprocess the entire dataset
         self.preprocessed_data = []
@@ -817,7 +866,7 @@ class MLJAXDataset:
 
     def preprocess_batch(self, batch: xr.Dataset): 
         # Normalize the dataset if normalization is provided
-        batch = self.normalize_ds(batch, self.ds_norm)
+        batch = self.normalize_ds(batch)
         
         # Process the input and output channels
         X_xr = batch[self.input_channels].to_stacked_array("input_features", sample_dims=['points'])
@@ -844,9 +893,9 @@ class MLJAXDataset:
         batch_out = {'X': X, 'y': y, 'Xp': Xp}
         return batch_out
     
-    def normalize_ds(self, ds, ds_norm):
-        if ds_norm is not None:
-            return ds / ds_norm
+    def normalize_ds(self, ds):
+        if self.do_normalize:     
+            return ds / self.ds_norm
         return ds
 
     def get_batches(self):
