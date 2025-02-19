@@ -624,7 +624,8 @@ class MLXarrayDataset:
                  time_range= slice(0, 20),
                  zl_range = slice(0, 2),
                  default_create = True,
-                 num_batches=None):
+                 num_batches=None,
+                 choose_experiment = None): 
 
         self.LARGEST_FILTER_SCALE = int(simulation_data.filter_scales[-1])
         self.simulation_data = simulation_data.simulation_data
@@ -636,6 +637,12 @@ class MLXarrayDataset:
         self.time_range = time_range
         self.zl_range = zl_range
         self.default_create = default_create
+
+        if choose_experiment is not None:
+            if choose_experiment == simulation_data.simulation_names:
+                pass
+            else:
+                self.simulation_data = self.simulation_data[choose_experiment]
         
         if use_mask: 
             self.use_mask = use_mask
@@ -644,6 +651,8 @@ class MLXarrayDataset:
         if self.default_create:
             self.create_xr_ML_variables(num_batches)
             self.num_batches = num_batches
+
+
 
     def choose_ml_variables(self):
         '''

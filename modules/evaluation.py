@@ -191,7 +191,7 @@ class EvalSystem:
             # determine coefficient
             A = ml_ds['uphp_rotated']
             B = ml_ds['uphp_rotated_gent_mcwilliams']
-            # Only do this calculation for downgradient part of the flow
+            # Only do this calculation for downgradient part of the flow (uphp is the along gradient case, also in the rotated case h_y_rotated=0)
             #C = ml_ds['uphp_rotated']
             #D = ml_ds['uphp_rotated_gent_mcwilliams']
 
@@ -268,14 +268,42 @@ class EvalSystem:
     
     def calc_time_hor_space_metrics(self, var='uphp', dims=['Time','xh','yh','zl'], 
                                     descriptor='all_space_time',
-                                    xh_region=slice(0, None), yh_region=slice(0, None), zl_slice=slice(0, None)): 
+                                    xh_region=None, 
+                                    yh_region=None, 
+                                    zl_slice=None,
+                                    use_default_subregions=False): 
         
+        # xh_region = xh_region
+        # yh_region = yh_region
+        # print(xh_region)
+
         def calc_for_dataset(ds): 
             ds = ds.copy()
-            true = ds[var].sel(xh=xh_region, yh=yh_region, zl=zl_slice)
 
+            simulation_name = ds.attrs['simulation_name']
+            if use_default_subregions:
+                if simulation_name == 'DG':
+                    xh_sel = slice(5, 17)
+                    yh_sel = slice(32, 42)
+                elif simulation_name == 'P2L':
+                    xh_sel = slice(200, 1000)
+                    yh_sel = slice(250, 1250)
+                else:
+                    xh_sel, yh_sel = None, None  # Default case
+            else:
+                xh_sel, yh_sel = xh_region, yh_region  # Use user-provided regions
+
+            # If regions are None, use full domain
+            xh_sel = ds.xh if xh_sel is None else xh_sel
+            yh_sel = ds.yh if yh_sel is None else yh_sel
+            zl_sel = ds.zl if zl_slice is None else zl_slice
+
+            #print(xh_region)
+            true = ds[var].sel(xh=xh_sel, yh=yh_sel, zl=zl_sel)
+            #print(true)
             try:
-                pred = ds[var+'_pred'].sel(xh=xh_region, yh=yh_region, zl=zl_slice)
+                pred = ds[var+'_pred'].sel(xh=xh_sel, yh=yh_sel, zl=zl_sel)
+                pred
             except KeyError:
                 print('No prediction found for variable: ' + var)
 
@@ -288,7 +316,18 @@ class EvalSystem:
         
         self.eval_datatree.ml_dataset = self.eval_datatree.ml_dataset.map_over_subtree(calc_for_dataset)
         
-
+    def calc_PS(self, var='uphp', spec_dims=['xh'], avg_dims=['Time','yh'], descriptor='zonal', 
+                xh_region=slice(5,17), yh_region=slice(32, 43)): 
+        
+        def calc_for_dataset(ds): 
+            ds = ds.copy()
+            ds[var+'_ps_'+descriptor] = xrft.power_spectrum(ds[var].sel(xh=xh_region, yh=yh_region), dim=spec_dims, window=True, window_correction=True).mean(avg_dims)
+            ds[var+'_ps_pred_'+descriptor] = xrft.power_spectrum(ds[var+'_pred'].sel(xh=xh_region, yh=yh_region), dim=spec_dims , window=True, window_correction=True).mean(avg_dims)
+            ds[var+'_ps_anom_'+descriptor] = xrft.power_spectrum( (ds[var+'_pred'] - ds[var]).sel(xh=xh_region, yh=yh_region), dim=spec_dims , window=True, window_correction=True).mean(avg_dims)
+            
+            return ds 
+        
+        self.eval_datatree.ml_dataset = self.eval_datatree.ml_dataset.map_over_subtree(calc_for_dataset)
 
 ### Old classes, kept here for backward compatibility.
 
