@@ -286,8 +286,8 @@ class EvalSystem:
                     xh_sel = slice(5, 17)
                     yh_sel = slice(32, 42)
                 elif simulation_name == 'P2L':
-                    xh_sel = slice(200, 1000)
-                    yh_sel = slice(250, 1250)
+                    xh_sel = slice(100, 1100)
+                    yh_sel = slice(250, 1350)
                 else:
                     xh_sel, yh_sel = None, None  # Default case
             else:
@@ -317,19 +317,40 @@ class EvalSystem:
         self.eval_datatree.ml_dataset = self.eval_datatree.ml_dataset.map_over_subtree(calc_for_dataset)
         
     def calc_PS(self, var='uphp', spec_dims=['xh'], avg_dims=['Time','yh'], descriptor='zonal', 
-                xh_region=slice(5,17), yh_region=slice(32, 43)): 
+                xh_region=slice(5,17), yh_region=slice(32, 43), use_default_subregions=False): 
         
         def calc_for_dataset(ds): 
             ds = ds.copy()
-            ds[var+'_ps_'+descriptor] = xrft.power_spectrum(ds[var].sel(xh=xh_region, yh=yh_region), dim=spec_dims, window=True, window_correction=True).mean(avg_dims)
-            ds[var+'_ps_pred_'+descriptor] = xrft.power_spectrum(ds[var+'_pred'].sel(xh=xh_region, yh=yh_region), dim=spec_dims , window=True, window_correction=True).mean(avg_dims)
-            ds[var+'_ps_anom_'+descriptor] = xrft.power_spectrum( (ds[var+'_pred'] - ds[var]).sel(xh=xh_region, yh=yh_region), dim=spec_dims , window=True, window_correction=True).mean(avg_dims)
+
+            simulation_name = ds.attrs['simulation_name']
+            if use_default_subregions:
+                if simulation_name == 'DG':
+                    xh_sel = slice(5, 17)
+                    yh_sel = slice(32, 43)
+                elif simulation_name == 'P2L':
+                    xh_sel = slice(100, 1100)
+                    yh_sel = slice(250, 1350)
+                else:
+                    xh_sel, yh_sel = None, None  # Default case
+            else:
+                xh_sel, yh_sel = xh_region, yh_region  # Use user-provided regions
+
+            ds[var+'_ps_'+descriptor] = xrft.power_spectrum(ds[var].sel(xh=xh_sel, yh=yh_sel), dim=spec_dims, window=True, window_correction=True).mean(avg_dims)
+            ds[var+'_ps_pred_'+descriptor] = xrft.power_spectrum(ds[var+'_pred'].sel(xh=xh_sel, yh=yh_sel), dim=spec_dims , window=True, window_correction=True).mean(avg_dims)
+            ds[var+'_ps_anom_'+descriptor] = xrft.power_spectrum( (ds[var+'_pred'] - ds[var]).sel(xh=xh_sel, yh=yh_sel), dim=spec_dims , window=True, window_correction=True).mean(avg_dims)
             
             return ds 
         
         self.eval_datatree.ml_dataset = self.eval_datatree.ml_dataset.map_over_subtree(calc_for_dataset)
 
-### Old classes, kept here for backward compatibility.
+
+############################################################
+############################################################
+############################################################
+### Old classes, kept here for backward compatibility. #####
+############################################################
+############################################################
+############################################################
 
 def full_reader(model_nc, data_zarr, L, data_kind, exp_name, ML_name,Tsel=slice(-25, None), Tdim='Time',
                windowed=False, window_size=None, local_norm=False, out_para_perp=False, dims_input = ['time', 'Z', 'YC', 'XC'], diffuse=False):
