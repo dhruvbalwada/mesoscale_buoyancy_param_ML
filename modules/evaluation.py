@@ -271,7 +271,8 @@ class EvalSystem:
                                     xh_region=None, 
                                     yh_region=None, 
                                     zl_slice=None,
-                                    use_default_subregions=False): 
+                                    use_default_subregions=False, 
+                                    load=True): 
         
         # xh_region = xh_region
         # yh_region = yh_region
@@ -303,7 +304,6 @@ class EvalSystem:
             #print(true)
             try:
                 pred = ds[var+'_pred'].sel(xh=xh_sel, yh=yh_sel, zl=zl_sel)
-                pred
             except KeyError:
                 print('No prediction found for variable: ' + var)
 
@@ -311,11 +311,17 @@ class EvalSystem:
             ds[var+'_R2_'+descriptor] = self._R2(true, pred, dims=dims)
             ds[var+'_corr_'+descriptor] = self._correlation(true, pred, dims=dims)
             ds[var+'_mse_'+descriptor] = self._MSE(true, pred, dims=dims)
-            
+
+            if load:
+                ds[var+'_R2_'+descriptor].load()
+                ds[var+'_corr_'+descriptor].load()
+                #ds[var+'_mse_'+descriptor].load()
+
             return ds 
         
         self.eval_datatree.ml_dataset = self.eval_datatree.ml_dataset.map_over_subtree(calc_for_dataset)
-        
+
+
     def calc_PS(self, var='uphp', spec_dims=['xh'], avg_dims=['Time','yh'], descriptor='zonal', 
                 xh_region=slice(5,17), yh_region=slice(32, 43), use_default_subregions=False): 
         
@@ -343,6 +349,69 @@ class EvalSystem:
         
         self.eval_datatree.ml_dataset = self.eval_datatree.ml_dataset.map_over_subtree(calc_for_dataset)
 
+    def calc_time_hor_space_metrics_trad_models(self, var='uphp', dims=['Time','xh','yh','zl'], 
+                                    descriptor='all_space_time',
+                                    xh_region=None, 
+                                    yh_region=None, 
+                                    zl_slice=None,
+                                    use_default_subregions=False,
+                                    load=True): 
+        
+        # xh_region = xh_region
+        # yh_region = yh_region
+        # print(xh_region)
+
+        def calc_for_dataset(ds): 
+            ds = ds.copy()
+
+            simulation_name = ds.attrs['simulation_name']
+            if use_default_subregions:
+                if simulation_name == 'DG':
+                    xh_sel = slice(5, 17)
+                    yh_sel = slice(32, 42)
+                elif simulation_name == 'P2L':
+                    xh_sel = slice(100, 1100)
+                    yh_sel = slice(250, 1350)
+                else:
+                    xh_sel, yh_sel = None, None  # Default case
+            else:
+                xh_sel, yh_sel = xh_region, yh_region  # Use user-provided regions
+
+            # If regions are None, use full domain
+            xh_sel = ds.xh if xh_sel is None else xh_sel
+            yh_sel = ds.yh if yh_sel is None else yh_sel
+            zl_sel = ds.zl if zl_slice is None else zl_slice
+
+            #print(xh_region)
+            true = ds[var].sel(xh=xh_sel, yh=yh_sel, zl=zl_sel)
+            #print(true)
+            try:
+                pred_grad_model = ds[var+'_grad_model'].sel(xh=xh_sel, yh=yh_sel, zl=zl_sel)
+                pred_gent_mcwilliams = ds[var+'_gent_mcwilliams'].sel(xh=xh_sel, yh=yh_sel, zl=zl_sel)
+            except KeyError:
+                print('No prediction found for variable: ' + var)
+
+            
+            ds[var+'_R2_grad_model_'+descriptor] = self._R2(true, pred_grad_model, dims=dims)
+            ds[var+'_corr_grad_model_'+descriptor] = self._correlation(true, pred_grad_model, dims=dims)
+            ds[var+'_mse_grad_model_'+descriptor] = self._MSE(true, pred_grad_model, dims=dims)
+
+            ds[var+'_R2_gent_mcwilliams_'+descriptor] = self._R2(true, pred_gent_mcwilliams, dims=dims)
+            ds[var+'_corr_gent_mcwilliams_'+descriptor] = self._correlation(true, pred_gent_mcwilliams, dims=dims)
+            ds[var+'_mse_gent_mcwilliams_'+descriptor] = self._MSE(true, pred_gent_mcwilliams, dims=dims)
+            
+            if load:
+                ds[var+'_R2_grad_model_'+descriptor].load()
+                ds[var+'_corr_grad_model_'+descriptor].load()
+                #ds[var+'_mse_grad_model_'+descriptor].load()
+
+                ds[var+'_R2_gent_mcwilliams_'+descriptor].load()
+                ds[var+'_corr_gent_mcwilliams_'+descriptor].load()
+                #ds[var+'_mse_gent_mcwilliams_'+descriptor].load()
+
+            return ds 
+        
+        self.eval_datatree.ml_dataset = self.eval_datatree.ml_dataset.map_over_subtree(calc_for_dataset)
 
 ############################################################
 ############################################################
