@@ -1,6 +1,7 @@
 import ML_classes
 import datasets
 import xarray as xr
+from datatree import DataTree 
 import matplotlib.pyplot as plt
 import xrft
 import PE_module
@@ -412,6 +413,15 @@ class EvalSystem:
             return ds 
         
         self.eval_datatree.ml_dataset = self.eval_datatree.ml_dataset.map_over_subtree(calc_for_dataset)
+
+    def coarsen_time_ML_data(self, coarsen_times=[16, 64, 128, 256]): 
+        self.coarsen_times = [str(time) for time in coarsen_times]
+
+        for exp in self.simulation_data.simulation_names:
+            for scale in self.simulation_data.filter_scales:
+                for coarsen_time in coarsen_times: 
+                    self.eval_datatree.ml_dataset[exp][scale][str(coarsen_time)] = DataTree(self.eval_datatree.ml_dataset[exp][scale].ds.coarsen(Time=coarsen_time, boundary='trim').mean())
+                      
 
 ############################################################
 ############################################################
