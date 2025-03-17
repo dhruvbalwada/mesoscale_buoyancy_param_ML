@@ -11,6 +11,7 @@ import time
 import jax.numpy as jnp
 
 seed = 42
+online_window = 1
 
 ### --- General functions for reading xarray dataarrays and opening as datatrees
 
@@ -86,7 +87,11 @@ def read_filtered_datatree(exp_name=['DG'], scales = ['50','100','200','400'],
 # Function to read data from simulations
 def read_dataset(exp_name='P2L', scale='100', rename=True):
 
-    fname = '~/mesoscale_buoyancy_param_ML/online_analysis_Greene/Phillips2Layer/example_data_window3.netcdf'
+    if online_window == 1:
+        fname = '~/mesoscale_buoyancy_param_ML/online_analysis_Greene/Phillips2Layer/example_data.netcdf'
+    elif online_window == 3:
+        fname = '~/mesoscale_buoyancy_param_ML/online_analysis_Greene/Phillips2Layer/example_data_window3.netcdf'
+    print(fname)
     ds = xr.open_dataset(fname, engine='netcdf4')
 
     if rename: 
@@ -178,6 +183,7 @@ class SimulationData:
                  e_ugrad = 1e-18,
                  e_hgrad = 1e-18, 
                  data_form = 'filtered',
+                 online_window_value = 1,
                  add_filter_scale=True, 
                  add_mask=True, 
                  add_deformation_radius=True,
@@ -194,12 +200,16 @@ class SimulationData:
         self.e_ugrad = e_ugrad
         self.e_hgrad = e_hgrad
         self.data_form = data_form
+        
         self.add_filter_scale = add_filter_scale
         self.add_mask = add_mask
         self.add_deformation_radius = add_deformation_radius
         self.add_middle_interface = add_middle_interface
         self.add_layer_decomposition = add_layer_decomposition
         self.variables_to_widen = variables_to_widen
+
+        global online_window
+        online_window = online_window_value
 
         self.load_simulation_data()
 
