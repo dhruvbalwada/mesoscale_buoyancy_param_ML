@@ -86,7 +86,7 @@ def read_filtered_datatree(exp_name=['DG'], scales = ['50','100','200','400'],
 # Function to read data from simulations
 def read_dataset(exp_name='P2L', scale='100', rename=True):
 
-    fname = '~/mesoscale_buoyancy_param_ML/online_analysis_Greene/Phillips2Layer/example_data.netcdf'
+    fname = '~/mesoscale_buoyancy_param_ML/online_analysis_Greene/Phillips2Layer/example_data_window3.netcdf'
     ds = xr.open_dataset(fname, engine='netcdf4')
 
     if rename: 
