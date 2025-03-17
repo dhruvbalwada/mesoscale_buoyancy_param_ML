@@ -53,7 +53,8 @@ def read_filtered_dataset(exp_name='DG', scale='100', assign_attrs=True, remove_
     return ds
     
 
-def read_filtered_datatree(exp_name=['DG'], scales = ['50','100','200','400']):
+def read_filtered_datatree(exp_name=['DG'], scales = ['50','100','200','400'], 
+                            reading_function = read_filtered_dataset):
     '''
     Read data from multiple scales and experiments (or other properties) at once 
     and expose using datatree.
@@ -68,19 +69,36 @@ def read_filtered_datatree(exp_name=['DG'], scales = ['50','100','200','400']):
 
     if isinstance(exp_name, str):
         for L in scales:
-            dtree_dict[L] = read_filtered_dataset(exp_name, L)
+            dtree_dict[L] = reading_function(exp_name, L)
             
     elif isinstance(exp_name, list):
         dtree_exp = {}
         for exp in exp_name: 
             
             for L in scales:
-                dtree_exp[L] = read_filtered_dataset(exp, L) 
+                dtree_exp[L] = reading_function(exp, L) 
                 
             dtree_dict[exp] = DataTree.from_dict(dtree_exp)
                 
     
     return DataTree.from_dict(dtree_dict)
+
+# Function to read data from simulations
+def read_dataset(exp_name='P2L', scale='100', rename=True):
+
+    fname = '~/mesoscale_buoyancy_param_ML/online_analysis_Greene/Phillips2Layer/example_data.netcdf'
+    ds = xr.open_dataset(fname, engine='netcdf4')
+
+    if rename: 
+        ds = ds.rename({'h':'hbar', 'u':'ubar', 'v':'vbar', 'e':'ebar',
+                        'Fx':'uphp', 'Fy':'vphp'})
+
+
+    ds.attrs['simulation_name'] = exp_name
+    ds.attrs['filter_scale'] = scale
+    ds.attrs['source'] = fname
+    ds.attrs['description'] = f"Dataset for {exp_name} experiment at {scale} km resolution"
+    return ds
 
 
 ### ------------ functions for manipulation of regular data 
@@ -158,7 +176,15 @@ class SimulationData:
                  time_sel = None,
                  nlayers = 2,
                  e_ugrad = 1e-18,
-                 e_hgrad = 1e-18):
+                 e_hgrad = 1e-18, 
+                 data_form = 'filtered',
+                 add_filter_scale=True, 
+                 add_mask=True, 
+                 add_deformation_radius=True,
+                 add_middle_interface=True,  
+                 add_layer_decomposition=True,
+                 variables_to_widen=['dudx','dvdx','dudy','dvdy','dhdx','dhdy','dhbardx','dhbardy','dedx_middle', 'dedy_middle']
+                 ):
 
         self.simulation_names = simulation_names
         self.filter_scales = filter_scales
@@ -167,7 +193,13 @@ class SimulationData:
         self.single_layer_mask_flag = single_layer_mask_flag
         self.e_ugrad = e_ugrad
         self.e_hgrad = e_hgrad
-
+        self.data_form = data_form
+        self.add_filter_scale = add_filter_scale
+        self.add_mask = add_mask
+        self.add_deformation_radius = add_deformation_radius
+        self.add_middle_interface = add_middle_interface
+        self.add_layer_decomposition = add_layer_decomposition
+        self.variables_to_widen = variables_to_widen
 
         self.load_simulation_data()
 
@@ -217,8 +249,12 @@ class SimulationData:
         Open up simulaiton data as a DataTree
         '''
         try: 
-            self.simulation_data = read_filtered_datatree(self.simulation_names,
+            if self.data_form == 'filtered':
+                self.simulation_data = read_filtered_datatree(self.simulation_names,
                                                   self.filter_scales)
+            elif self.data_form == 'regular':
+                self.simulation_data = read_filtered_datatree(self.simulation_names,
+                                                  self.filter_scales, reading_function=read_dataset)
         except:
             print("Error reading simulation data")
             
@@ -263,8 +299,7 @@ class SimulationData:
         # Apply the mask to all variables in the dataset.
         self.simulation_data = self.simulation_data.map_over_subtree(mask_data_variables)
             
-    def add_variables(self, add_filter_scale=True, add_mask=True, add_deformation_radius=True,
-                            add_middle_interface=True,  add_layer_decomposition=True):
+    def add_variables(self, ):
         '''
         To add variables that don't already exist in the dataset.
         Examples can be length scales, some grid related variable, or some variables that are derived from existing variables.
@@ -272,7 +307,7 @@ class SimulationData:
         In some future iterations, some of these calculations can be moved over to the data generation steps.
         '''
         # Add length scales
-        if add_mask:
+        if self.add_mask:
             self.generate_h_mask()
             
         # Add filter scales
@@ -303,7 +338,7 @@ class SimulationData:
 
             return ds
 
-        if add_filter_scale:
+        if self.add_filter_scale:
             #self.ml_input_dataset = self.ml_input_dataset.map_over_subtree(lambda n: n.assign(filter_scale = float(n.attrs['filter_scale'])*1e3 + 0.*n.dudx))
             #self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(filter_scale = float(n.attrs['filter_scale'])*1e3 + 0.*n.dudx))
             self.simulation_data = self.simulation_data.map_over_subtree(calculate_filter_scale)
@@ -330,11 +365,11 @@ class SimulationData:
 
             return ds
 
-        if add_deformation_radius:
+        if self.add_deformation_radius:
             self.simulation_data = self.simulation_data.map_over_subtree(calculate_deformation_radius)
 
         # Add middle interface as a variable
-        if add_middle_interface:
+        if self.add_middle_interface:
             #self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedx_middle = (n.dedx.isel(zi=1) + 0.*n.dhdx) ))
             #self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedy_middle = (n.dedy.isel(zi=1) + 0.*n.dhdy) ))
             self.simulation_data = self.simulation_data.map_over_subtree(lambda n: n.assign(dedx_middle = np.sign(n.zl - n.zl.mean()) * (n.dedx.isel(zi=1) + 0.*n.dhdx) ))
@@ -365,13 +400,13 @@ class SimulationData:
  
             return ds
         
-        if add_layer_decomposition: 
+        if self.add_layer_decomposition: 
             if self.nlayers == 2:
                 self.simulation_data = self.simulation_data.map_over_subtree(decompose_2_layer_thickness_gradients)
             else:
                 print("warning: Layer decomposition not applied, as simulation has more than 2 layer.")
 
-    def create_wider_stencil(self, variables_to_widen=['dudx','dvdx','dudy','dvdy','dhdx','dhdy','dhbardx','dhbardy','dedx_middle', 'dedy_middle'], not_replace=True):
+    def create_wider_stencil(self, not_replace=True):
         '''
         Add a stencil of specified size around the prediction point for selected variables in the dataset.
     
@@ -398,12 +433,12 @@ class SimulationData:
         
         def widen_stencil(n): 
             # Apply rolling and construct on the variables_to_widen
-            widened = n[variables_to_widen].rolling(xh=self.window_size, yh=self.window_size, 
+            widened = n[self.variables_to_widen].rolling(xh=self.window_size, yh=self.window_size, 
                                                     min_periods=1, center=True).construct(xh='Xn', yh='Yn')
 
             if not_replace:                
             # Rename the widened variables to avoid overwriting
-                widened = widened.rename({var: f"{var}_widened" for var in variables_to_widen})
+                widened = widened.rename({var: f"{var}_widened" for var in self.variables_to_widen})
             
             # Merge the widened variables with the original dataset
             combined = xr.merge([widened, n], compat='override')
