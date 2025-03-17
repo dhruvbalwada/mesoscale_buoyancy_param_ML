@@ -318,6 +318,68 @@ class AnnRegressionSystem:
         '''
         return Xp * self.state.apply_fn(self.state.params, X) 
 
+    def save_nc(self, nc_fname, ML_DT_train, 
+                input_channels, output_channels, ckpt_save_dir):
+        '''
+        This function saves the model parameters in a netCDF file.
+        '''
+        temp_use = ML_DT_train
+
+        # input_channels = common_config['input_channels']
+        # output_channels = common_config['output_channels']
+        # ckpt_save_dir = common_config['ckpt_save_dir']
+        # nc_fname = 'test.nc'
+
+        input_norms = np.array([])
+        for n, var in enumerate(input_channels):
+            var_shape = temp_use.ml_batches[0][var].isel(points=0).data.shape
+
+            temp = np.full(var_shape, temp_use.ds_norm[var].values).reshape(-1)
+            input_norms = np.append(input_norms, temp)
+
+        output_norms = np.zeros(len(output_channels))
+        for n, var in enumerate(output_channels):
+            output_norms[n] = temp_use.ds_norm[var].values
+
+        # Info from regression system 
+        ds_layers = xr.Dataset()
+
+        layer_sizes = np.array([self.network.num_in])
+
+        for i in self.network.shape:
+            layer_sizes = np.append(layer_sizes, i)
+
+        ds_layers['layer_sizes'] = xr.DataArray(layer_sizes.astype('int32'), dims=['num_layers'])
+
+        for n, shape in enumerate(self.network.shape): 
+            num = n
+            ds_layers['A'+str(num)] = xr.DataArray(self.state.params['params']['layers_'+str(num)]['kernel'].astype('float32'), 
+                                    dims=['layer_'+str(num), 'layer_'+str(num+1)])
+
+            if self.network.bias:
+                ds_layers['b'+str(num)] = xr.DataArray(self.state.params['params']['layers_'+str(num)]['bias'].astype('float32'), 
+                                    dims=['layer_'+str(num+1)])
+            else:
+                ds_layers['b'+str(num)] = xr.DataArray(np.zeros(layer_sizes[n+1]).astype('float32'), 
+                                    dims=['layer_'+str(num+1)])
+
+        ds_layers['input_norms'] = xr.DataArray(input_norms.astype('float32'), dims=['layer_0'])
+        ds_layers['output_norms'] = xr.DataArray(output_norms.astype('float32'), dims=['layer_'+str(num+1)])
+
+        ds_layers['test_loss'] = xr.DataArray(self.test_loss, dims=['epochs'])
+        ds_layers['test_R2'] = xr.DataArray(self.test_R2, dims=['epochs'])
+
+        ds_layers.attrs['CKPT_DIR'] = ckpt_save_dir
+        ds_layers.attrs['shape'] = self.network.shape
+        ds_layers.attrs['num_in'] = self.network.num_in
+        ds_layers.attrs['input_channels'] = input_channels
+        ds_layers.attrs['output_channels'] = output_channels
+
+        ds_layers.to_netcdf(nc_fname, mode='w')
+
+        self.ds_layers = ds_layers
+
+
 
 ######################## Old ########################
 ######################## Old ########################
