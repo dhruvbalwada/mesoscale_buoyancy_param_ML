@@ -1,0 +1,24 @@
+! Auto-generated MOM_override
+! Blank file in which we can put "overrides" for parameters
+#override NIGLOBAL=120
+#override NJGLOBAL=160
+#override DAYMAX=3600.0
+#override DT = 600.
+#override DT_THERM= 1800.
+#override RESOLN_SCALED_KH = False
+#override RESOLN_SCALED_KHTH = False 
+! Flags for getting thickness diffusion to work with ANN.
+#override THICKNESSDIFFUSE = True
+#override KHTH = 0.0
+#override THICKNESS_FLUX_ANN = True
+#override thickness_flux_ann_window = 3
+#override thickness_flux_model_type="nondim_ann"
+#override thickness_flux_ann_num_layers=4
+#override thickness_flux_ann_params_file="INPUT/main_ANN_window_3.nc"
+#override thickness_flux_ann_coeff=1.0
+#override decompose_h_gradients = True
+#override h_mask_flux = False
+#override h_min_mask = 1.0
+#override FGR_ANN = 5.0
+#override remove_barotropic_flux = True
+#override limit_upslope_flow = True

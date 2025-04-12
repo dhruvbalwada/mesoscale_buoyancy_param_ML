@@ -1,0 +1,27 @@
+#!/bin/bash
+
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=32
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=50GB
+#SBATCH --time=01:30:00
+#SBATCH --job-name="MOM6"
+#SBATCH --output=slurm.out
+#SBATCH --error=slurm.err
+#SBATCH --mail-type=END
+#SBATCH --mail-user=db194@nyu.edu
+
+## Set experiment name here
+#EXP_NAME=Phillips_2layer_highres
+
+## Create an output directory /scratch/aeb783/mom6/double_gyre and copy experiment files into it
+#rm -rf $SCRATCH/mom6/$EXP_NAME
+#mkdir -p $SCRATCH/mom6/$EXP_NAME
+#cd $SCRATCH/mom6/$EXP_NAME
+#cp -r ~/mom6/MOM6-examples/ocean_only/$EXP_NAME/* .
+
+## Run the model with 2*30=60 tasks
+module purge
+source ~/MOM6-examples/build/intel/env
+time srun /home/db194/MOM6-examples/build/intel/ocean_only/repro/MOM6 > out.txt
+mv *.nc OUTPUT/
