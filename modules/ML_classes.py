@@ -316,7 +316,7 @@ class AnnRegressionSystem:
         '''
         This function predicts the output of the model for the input X, with multiplier Xp.
         '''
-        return Xp * self.state.apply_fn(self.state.params, X) 
+        return Xp * np.asarray(self.state.apply_fn(self.state.params, X))
 
     def save_nc(self, nc_fname, ML_DT_train, 
                 input_channels, output_channels, ckpt_save_dir):

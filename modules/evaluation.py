@@ -108,9 +108,15 @@ class EvalSystem:
 
             else:
                 Xp_xr = 0.*y_xr.copy() + 1.
-           
-            y_pred_xr = self.regress_sys.pred(X_xr, Xp_xr)
 
+            #print(Xp_xr)
+            #print(X_xr)
+            #y_pred_xr = self.regress_sys.pred(X_xr, Xp_xr)
+            y_pred_xr = self.regress_sys.pred(X_xr, Xp_xr)
+            
+            #y_pred_xr = np.asarray(y_pred) + 0.*y_xr.copy()
+            #print(y_pred_xr)
+            
             pred_xr = y_pred_xr.to_dataset(dim='variable') * self.ds_norm_factors
            
 
@@ -177,7 +183,7 @@ class EvalSystem:
         
         self.eval_datatree.ml_dataset = self.eval_datatree.ml_dataset.map_over_subtree(gradient_model)
         
-    def add_gent_mcwilliams_variables(self):
+    def add_gent_mcwilliams_variables(self, lev=[0,1]):
 
         def gent_mcwilliams_model(ml_ds): 
             ml_ds = ml_ds.copy()
@@ -190,8 +196,8 @@ class EvalSystem:
             ml_ds['vphp_rotated_gent_mcwilliams'] = - sim_ds['dhdy_widened_rotated'].isel(Xn=mid_point, Yn=mid_point)
 
             # determine coefficient
-            A = ml_ds['uphp_rotated']
-            B = ml_ds['uphp_rotated_gent_mcwilliams']
+            A = ml_ds['uphp_rotated'].isel(zl=lev)
+            B = ml_ds['uphp_rotated_gent_mcwilliams'].isel(zl=lev)
             # Only do this calculation for downgradient part of the flow (uphp is the along gradient case, also in the rotated case h_y_rotated=0)
             #C = ml_ds['uphp_rotated']
             #D = ml_ds['uphp_rotated_gent_mcwilliams']
