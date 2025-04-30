@@ -15,6 +15,69 @@ def ave_e(ds):
 
     return ds
 
+def ave_KE(ds):
+    if 'RV' in ds:
+        ds = ds.copy()
+
+        grid = Grid(ds, coords={'X': {'center': 'xh', 'right': 'xq'},
+                        'Y': {'center': 'yh', 'right': 'yq'},
+                        'Z': {'inner': 'zl', 'outer': 'zi'} }, periodic=None)
+        
+
+        Tsel = slice(3*360, 360*13)
+        
+        ds['KE_map'] = 0.5*(grid.interp(ds.u, 'X')**2 + 
+                            grid.interp(ds.v, 'Y')**2  ).sel(Time=Tsel).mean('Time')
+
+    return ds
+
+def decompose_2_layer_thickness_gradients(ds):
+    ds = ds.copy()
+
+    ds['h_mask'] = (ds['hbar']>=20)
+    
+    dhbardx = xr.DataArray(np.zeros_like(ds.dhdx), dims=ds.dhdx.dims, coords=ds.dhdx.coords)
+    dhbardy = xr.DataArray(np.zeros_like(ds.dhdx), dims=ds.dhdx.dims, coords=ds.dhdx.coords)
+
+    # This does not work in this case. 
+    #dhbardx = 0.*ds.dhdx
+    #dhbardy = 0.*ds.dhdy
+    
+    dhbardx.isel(zl=0)[:] = -ds.dedx.isel(zi=-1) * (1-ds.h_mask.isel(zl=1))
+    dhbardy.isel(zl=0)[:] = -ds.dedy.isel(zi=-1) * (1-ds.h_mask.isel(zl=1))
+
+    dhbardx.isel(zl=1)[:] = -ds.dedx.isel(zi=-1)
+    dhbardy.isel(zl=1)[:] = -ds.dedy.isel(zi=-1)
+
+    ds['dhbardx'] = dhbardx
+    ds['dhbardy'] = dhbardy
+
+    ds['dhdx'] = (ds['dhdx'] - ds['dhbardx'])*ds.h_mask
+    ds['dhdy'] = (ds['dhdy'] - ds['dhbardy'])*ds.h_mask
+
+    return ds
+
+
+def add_PE_reduction_rate_map(ds, Fvar = ['Fx','Fy'], gradvar = ['dhdx','dhdy']): 
+    if 'RV' in ds: 
+        ds = ds.copy()
+
+        
+        ds_Tsel = ds.sel(Time=slice(360*3, 360*13)) 
+        
+        ds['APE_reduce_rate'] = ( ds.R[0] * 9.8e-03* 
+                                 (ds_Tsel[Fvar[0]] * ds_Tsel[gradvar[0]] + 
+                                  ds_Tsel[Fvar[1]] * ds_Tsel[gradvar[1]]).isel(zl=1)).mean('Time')
+
+        ds['APE_reduce_rate_mean'] = ( ds.R[0] * 9.8e-03* 
+                                      (ds_Tsel[Fvar[0]].mean('Time') * ds_Tsel[gradvar[0]].mean('Time') + 
+                                       ds_Tsel[Fvar[1]].mean('Time') * ds_Tsel[gradvar[1]].mean('Time')).isel(zl=1))
+
+        
+        ds['APE_reduce_rate_eddy'] = ds['APE_reduce_rate'] - ds['APE_reduce_rate_mean']
+    else: 
+        pass
+    return ds
 
 
 def add_PE_reduction_rate(ds, Fvar = ['Fx','Fy'], gradvar = ['dhdx','dhdy']): 
@@ -22,19 +85,18 @@ def add_PE_reduction_rate(ds, Fvar = ['Fx','Fy'], gradvar = ['dhdx','dhdy']):
         ds = ds.copy()
 
         
-        ds_Tsel = ds.isel(Time=slice(360*3, 360*13)) 
+        ds_Tsel = ds.sel(Time=slice(360*3, 360*13)) 
         
-        ds['APE_reduce_rate'] = (ds.Ah* ds.R[0] * 9.8e-03* (ds_Tsel[Fvar[0]] * ds_Tsel[gradvar[0]] + ds_Tsel[Fvar[0]] * ds_Tsel[gradvar[1]] ).isel(zl=1).mean('Time'))#.sum(['xh', 'yh'])
+        ds['APE_reduce_rate_bulk'] = (ds.Ah* ds.R[0] * 9.8e-03* 
+                                 (ds_Tsel[Fvar[0]] * ds_Tsel[gradvar[0]] + 
+                                  ds_Tsel[Fvar[1]] * ds_Tsel[gradvar[1]]).isel(zl=1).mean('Time')).sum(['xh','yh'])
 
-        ds['APE_reduce_rate_mean'] = (ds.Ah* ds.R[0] * 9.8e-03* (ds_Tsel[Fvar[0]].mean('Time') * ds_Tsel[gravar[0]].mean('Time') + 
-                                                           ds_Tsel[Fvar[1].mean('Time') * ds_Tsel[gradvar[1]].mean('Time')
-                                                          ).isel(zl=1))#.sum(['xh', 'yh'])
+        ds['APE_reduce_rate_mean_bulk'] = (ds.Ah* ds.R[0] * 9.8e-03* 
+                                      (ds_Tsel[Fvar[0]].mean('Time') * ds_Tsel[gradvar[0]].mean('Time') + 
+                                       ds_Tsel[Fvar[1]].mean('Time') * ds_Tsel[gradvar[1]].mean('Time')).isel(zl=1)).sum(['xh','yh'])
 
-        # ds['APE_reduce_rate_mean'] = dA* 1031. * 1.96e-02* (ds_Tsel.Fx * ds_Tsel.dhdx.mean('Time') + 
-        #                                                    ds_Tsel.Fy * ds_Tsel.dhdy.mean('Time')
-        #                                                   ).isel(zl=1).mean('Time').sum(['xh', 'yh'])
         
-        ds['APE_reduce_rate_eddy'] = ds['APE_reduce_rate'] - ds['APE_reduce_rate_mean']
+        ds['APE_reduce_rate_eddy_bulk'] = ds['APE_reduce_rate_bulk'] - ds['APE_reduce_rate_mean_bulk']
     else: 
         pass
     return ds
@@ -46,7 +108,7 @@ def add_energy_metrics_filt_coarse(ds):
 
     ds['KE'] = (0.5* ds.hbar *ds.zl *(ds.ubar**2 + ds.vbar**2) *dA).sum('zl').sum(['xh', 'yh'])
     
-    ds_mean = ds.isel(Time=slice(72, None)).mean('Time')
+    ds_mean = ds.sel(Time=slice(3*360, 13*360)).mean('Time')
     
     ds['MKE'] = (0.5* ds_mean.hbar * ds_mean.zl *(ds_mean.ubar**2 + ds_mean.vbar**2) *dA).sum('zl').sum(['xh', 'yh'])
 

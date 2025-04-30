@@ -182,7 +182,7 @@ def calc_SG_forcing(ds):
 #def add_PE_reduction_rate(ds): 
 
 
-def add_PE_reduction_rate(ds): 
+def add_PE_reduction_rate(ds,  Fvar = ['Fx','Fy'], gradvar = ['dhdx','dhdy']): 
     if 'RV' in ds: 
         ds = ds.copy()
 
@@ -193,10 +193,11 @@ def add_PE_reduction_rate(ds):
 
         ds_Tsel = ds.isel(Time=slice(72, None)) 
         
-        ds['APE_reduce_rate'] = dA* 1031. * 1.96e-02* (ds_Tsel.Fx * ds_Tsel.dhdx + ds_Tsel.Fy * ds_Tsel.dhdy).isel(zl=1).mean('Time').sum(['xh', 'yh'])
+        ds['APE_reduce_rate'] = dA* 1031. * 1.96e-02* (ds_Tsel[Fvar[0]] * ds_Tsel[gradvar[0]] + 
+                                                       ds_Tsel[Fvar[1]] * ds_Tsel[gradvar[1]]).isel(zl=1).mean('Time').sum(['xh', 'yh'])
 
-        ds['APE_reduce_rate_mean'] = dA* 1031. * 1.96e-02* (ds_Tsel.Fx.mean('Time') * ds_Tsel.dhdx.mean('Time') + 
-                                                           ds_Tsel.Fy.mean('Time') * ds_Tsel.dhdy.mean('Time')
+        ds['APE_reduce_rate_mean'] = dA* 1031. * 1.96e-02* (ds_Tsel[Fvar[0]].mean('Time') * ds_Tsel[gradvar[0]].mean('Time') + 
+                                                           ds_Tsel[Fvar[1]].mean('Time') * ds_Tsel[gradvar[1]].mean('Time')
                                                           ).isel(zl=1).sum(['xh', 'yh'])
         
         ds['APE_reduce_rate_eddy'] = ds['APE_reduce_rate'] - ds['APE_reduce_rate_mean']
@@ -361,9 +362,6 @@ def add_filt_coarse_transport(ds):
     
     dx = ds.xh.diff('xh').values[0] * 1e3
     dy = ds.yh.diff('yh').values[0] * 1e3
-    
-    print(dx)
-    
        
     Tsel = slice(72, None) 
     
