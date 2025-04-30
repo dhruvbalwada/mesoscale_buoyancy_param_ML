@@ -1,0 +1,3 @@
+Experiment: res_20km_ANN_0.0
+Prepared: 2025-03-28 17:17:44
+Mode: fresh
