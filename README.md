@@ -1,4 +1,4 @@
-# Data-driven parameterization for mesoscale buoyancy fluxes
+# data-driven parameterization for mesoscale thickness fluxes
 ## Dhruv Balwada, Pavel Perezhogin, Alistair Adcroft and Laure Zanna
 ### Lamont-Doherty Earth Observatory, Columbia University/ Courant Institute of Mathematical Sciences, New York University/ Princeton University
 
