@@ -1,0 +1,128 @@
+Submitted batch job 1392434
+Submitted batch job 1392435
+Submitted batch job 1392436
+Submitted batch job 1392437
+Submitted batch job 1392438
+Submitted batch job 1392439
+Submitted batch job 1392440
+Submitted batch job 1392441
+Submitted batch job 1392442
+Submitted batch job 1392443
+Submitted batch job 1392444
+Submitted batch job 1392445
+Submitted batch job 1392446
+Submitted batch job 1392448
+Submitted batch job 1392449
+Submitted batch job 1392450
+Submitted batch job 1392451
+Submitted batch job 1392452
+Submitted batch job 1392453
+Submitted batch job 1392454
+Submitted batch job 1392455
+Submitted batch job 1392456
+Submitted batch job 1392457
+Submitted batch job 1392458
+Submitted batch job 1392459
+Submitted batch job 1392460
+Submitted batch job 1392461
+Submitted batch job 1392462
+Submitted batch job 1392463
+Submitted batch job 1392464
+Submitted batch job 1392465
+Submitted batch job 1392466
+Submitted batch job 1392467
+Submitted batch job 1392468
+Submitted batch job 1392469
+Submitted batch job 1392470
+Submitted batch job 1392471
+Submitted batch job 1392472
+Submitted batch job 1392473
+Submitted batch job 1392474
+Submitted batch job 1392475
+Submitted batch job 1392477
+Submitted batch job 1392478
+Submitted batch job 1392479
+Submitted batch job 1392480
+Submitted batch job 1392481
+Submitted batch job 1392482
+Submitted batch job 1392483
+Submitted batch job 1392484
+Submitted batch job 1392485
+Submitted batch job 1392486
+Submitted batch job 1392487
+Submitted batch job 1392488
+Submitted batch job 1392489
+Submitted batch job 1392490
+Submitted batch job 1392491
+Submitted batch job 1392492
+Submitted batch job 1392493
+Submitted batch job 1392494
+Submitted batch job 1392495
+Submitted batch job 1392496
+Submitted batch job 1392497
+Submitted batch job 1392498
+Submitted batch job 1392499
+Launching experiment with tau=0.1, cb=0.0, cu=0.0
+Launching experiment with tau=0.1, cb=0.0, cu=0.5
+Launching experiment with tau=0.1, cb=0.0, cu=1.0
+Launching experiment with tau=0.1, cb=0.0, cu=2.0
+Launching experiment with tau=0.1, cb=1.0, cu=0.0
+Launching experiment with tau=0.1, cb=1.0, cu=0.5
+Launching experiment with tau=0.1, cb=1.0, cu=1.0
+Launching experiment with tau=0.1, cb=1.0, cu=2.0
+Launching experiment with tau=0.1, cb=2.0, cu=0.0
+Launching experiment with tau=0.1, cb=2.0, cu=0.5
+Launching experiment with tau=0.1, cb=2.0, cu=1.0
+Launching experiment with tau=0.1, cb=2.0, cu=2.0
+Launching experiment with tau=0.1, cb=3.0, cu=0.0
+Launching experiment with tau=0.1, cb=3.0, cu=0.5
+Launching experiment with tau=0.1, cb=3.0, cu=1.0
+Launching experiment with tau=0.1, cb=3.0, cu=2.0
+Launching experiment with tau=0.2, cb=0.0, cu=0.0
+Launching experiment with tau=0.2, cb=0.0, cu=0.5
+Launching experiment with tau=0.2, cb=0.0, cu=1.0
+Launching experiment with tau=0.2, cb=0.0, cu=2.0
+Launching experiment with tau=0.2, cb=1.0, cu=0.0
+Launching experiment with tau=0.2, cb=1.0, cu=0.5
+Launching experiment with tau=0.2, cb=1.0, cu=1.0
+Launching experiment with tau=0.2, cb=1.0, cu=2.0
+Launching experiment with tau=0.2, cb=2.0, cu=0.0
+Launching experiment with tau=0.2, cb=2.0, cu=0.5
+Launching experiment with tau=0.2, cb=2.0, cu=1.0
+Launching experiment with tau=0.2, cb=2.0, cu=2.0
+Launching experiment with tau=0.2, cb=3.0, cu=0.0
+Launching experiment with tau=0.2, cb=3.0, cu=0.5
+Launching experiment with tau=0.2, cb=3.0, cu=1.0
+Launching experiment with tau=0.2, cb=3.0, cu=2.0
+Launching experiment with tau=0.3, cb=0.0, cu=0.0
+Launching experiment with tau=0.3, cb=0.0, cu=0.5
+Launching experiment with tau=0.3, cb=0.0, cu=1.0
+Launching experiment with tau=0.3, cb=0.0, cu=2.0
+Launching experiment with tau=0.3, cb=1.0, cu=0.0
+Launching experiment with tau=0.3, cb=1.0, cu=0.5
+Launching experiment with tau=0.3, cb=1.0, cu=1.0
+Launching experiment with tau=0.3, cb=1.0, cu=2.0
+Launching experiment with tau=0.3, cb=2.0, cu=0.0
+Launching experiment with tau=0.3, cb=2.0, cu=0.5
+Launching experiment with tau=0.3, cb=2.0, cu=1.0
+Launching experiment with tau=0.3, cb=2.0, cu=2.0
+Launching experiment with tau=0.3, cb=3.0, cu=0.0
+Launching experiment with tau=0.3, cb=3.0, cu=0.5
+Launching experiment with tau=0.3, cb=3.0, cu=1.0
+Launching experiment with tau=0.3, cb=3.0, cu=2.0
+Launching experiment with tau=0.4, cb=0.0, cu=0.0
+Launching experiment with tau=0.4, cb=0.0, cu=0.5
+Launching experiment with tau=0.4, cb=0.0, cu=1.0
+Launching experiment with tau=0.4, cb=0.0, cu=2.0
+Launching experiment with tau=0.4, cb=1.0, cu=0.0
+Launching experiment with tau=0.4, cb=1.0, cu=0.5
+Launching experiment with tau=0.4, cb=1.0, cu=1.0
+Launching experiment with tau=0.4, cb=1.0, cu=2.0
+Launching experiment with tau=0.4, cb=2.0, cu=0.0
+Launching experiment with tau=0.4, cb=2.0, cu=0.5
+Launching experiment with tau=0.4, cb=2.0, cu=1.0
+Launching experiment with tau=0.4, cb=2.0, cu=2.0
+Launching experiment with tau=0.4, cb=3.0, cu=0.0
+Launching experiment with tau=0.4, cb=3.0, cu=0.5
+Launching experiment with tau=0.4, cb=3.0, cu=1.0
+Launching experiment with tau=0.4, cb=3.0, cu=2.0

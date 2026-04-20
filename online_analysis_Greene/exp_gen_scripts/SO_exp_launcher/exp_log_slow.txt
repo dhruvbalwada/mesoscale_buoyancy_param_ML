@@ -1,0 +1,30 @@
+Submitted batch job 1485639
+Submitted batch job 1485640
+Submitted batch job 1485641
+Submitted batch job 1485642
+Submitted batch job 1485643
+Submitted batch job 1485644
+Submitted batch job 1485645
+Submitted batch job 1485646
+Submitted batch job 1485647
+Submitted batch job 1485648
+Submitted batch job 1485649
+Submitted batch job 1485650
+Submitted batch job 1485651
+Submitted batch job 1485652
+Submitted batch job 1485653
+Launching experiment with tau=0.0, cb=0.0, cu=0.0
+Launching experiment with tau=0.1, cb=0.0, cu=0.0
+Launching experiment with tau=0.2, cb=0.0, cu=0.0
+Launching experiment with tau=0.3, cb=0.0, cu=0.0
+Launching experiment with tau=0.4, cb=0.0, cu=0.0
+Launching experiment with tau=0.0, cb=0.0, cu=0.0
+Launching experiment with tau=0.1, cb=0.0, cu=0.0
+Launching experiment with tau=0.2, cb=0.0, cu=0.0
+Launching experiment with tau=0.3, cb=0.0, cu=0.0
+Launching experiment with tau=0.4, cb=0.0, cu=0.0
+Launching experiment with tau=0.0, cb=0.0, cu=0.0
+Launching experiment with tau=0.1, cb=0.0, cu=0.0
+Launching experiment with tau=0.2, cb=0.0, cu=0.0
+Launching experiment with tau=0.3, cb=0.0, cu=0.0
+Launching experiment with tau=0.4, cb=0.0, cu=0.0

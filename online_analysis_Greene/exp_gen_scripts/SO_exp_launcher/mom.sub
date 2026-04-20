@@ -1,0 +1,17 @@
+#!/bin/bash
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=42
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=50GB
+#SBATCH --time=2:00:00
+#SBATCH --begin=now+0hour
+#SBATCH --job-name=mom6_SO
+
+scontrol show jobid -dd $SLURM_JOB_ID
+module purge
+source ~/MOM6-examples/build/intel/env_torch
+time mpiexec ./MOM6 > out.txt
+sacct -j $SLURM_JOB_ID --format=JobID,JobName,MaxRSS,Elapsed
+sacct -j $SLURM_JOB_ID --units=G --format=User,JobID%24,JobName,state,elapsed,TotalCPU,ReqMem,MaxRss,MaxVMSize,nnodes,ncpus,nodelist,Elapsed
+mkdir -p output
+mv *.nc output

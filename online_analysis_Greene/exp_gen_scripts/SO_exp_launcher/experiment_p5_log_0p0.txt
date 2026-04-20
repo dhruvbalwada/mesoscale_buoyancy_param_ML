@@ -1,0 +1,160 @@
+Submitted batch job 1474157
+Submitted batch job 1474159
+Submitted batch job 1474160
+Submitted batch job 1474161
+Submitted batch job 1474162
+Submitted batch job 1474163
+Submitted batch job 1474164
+Submitted batch job 1474165
+Submitted batch job 1474166
+Submitted batch job 1474167
+Submitted batch job 1474168
+Submitted batch job 1474169
+Submitted batch job 1474170
+Submitted batch job 1474171
+Submitted batch job 1474172
+Submitted batch job 1474173
+Launching experiment with tau=0.0, cb=0.0, cu=0.0
+Launching experiment with tau=0.0, cb=0.0, cu=0.5
+Launching experiment with tau=0.0, cb=0.0, cu=1.0
+Launching experiment with tau=0.0, cb=0.0, cu=2.0
+Launching experiment with tau=0.0, cb=1.0, cu=0.0
+Launching experiment with tau=0.0, cb=1.0, cu=0.5
+Launching experiment with tau=0.0, cb=1.0, cu=1.0
+Launching experiment with tau=0.0, cb=1.0, cu=2.0
+Launching experiment with tau=0.0, cb=2.0, cu=0.0
+Launching experiment with tau=0.0, cb=2.0, cu=0.5
+Launching experiment with tau=0.0, cb=2.0, cu=1.0
+Launching experiment with tau=0.0, cb=2.0, cu=2.0
+Launching experiment with tau=0.0, cb=3.0, cu=0.0
+Launching experiment with tau=0.0, cb=3.0, cu=0.5
+Launching experiment with tau=0.0, cb=3.0, cu=1.0
+Launching experiment with tau=0.0, cb=3.0, cu=2.0
+Launching experiment with tau=0.1, cb=0.0, cu=0.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.1_cb_0.0_cu_0.0/ already exists. We skip it
+Launching experiment with tau=0.1, cb=0.0, cu=0.5
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.1_cb_0.0_cu_0.5/ already exists. We skip it
+Launching experiment with tau=0.1, cb=0.0, cu=1.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.1_cb_0.0_cu_1.0/ already exists. We skip it
+Launching experiment with tau=0.1, cb=0.0, cu=2.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.1_cb_0.0_cu_2.0/ already exists. We skip it
+Launching experiment with tau=0.1, cb=1.0, cu=0.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.1_cb_1.0_cu_0.0/ already exists. We skip it
+Launching experiment with tau=0.1, cb=1.0, cu=0.5
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.1_cb_1.0_cu_0.5/ already exists. We skip it
+Launching experiment with tau=0.1, cb=1.0, cu=1.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.1_cb_1.0_cu_1.0/ already exists. We skip it
+Launching experiment with tau=0.1, cb=1.0, cu=2.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.1_cb_1.0_cu_2.0/ already exists. We skip it
+Launching experiment with tau=0.1, cb=2.0, cu=0.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.1_cb_2.0_cu_0.0/ already exists. We skip it
+Launching experiment with tau=0.1, cb=2.0, cu=0.5
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.1_cb_2.0_cu_0.5/ already exists. We skip it
+Launching experiment with tau=0.1, cb=2.0, cu=1.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.1_cb_2.0_cu_1.0/ already exists. We skip it
+Launching experiment with tau=0.1, cb=2.0, cu=2.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.1_cb_2.0_cu_2.0/ already exists. We skip it
+Launching experiment with tau=0.1, cb=3.0, cu=0.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.1_cb_3.0_cu_0.0/ already exists. We skip it
+Launching experiment with tau=0.1, cb=3.0, cu=0.5
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.1_cb_3.0_cu_0.5/ already exists. We skip it
+Launching experiment with tau=0.1, cb=3.0, cu=1.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.1_cb_3.0_cu_1.0/ already exists. We skip it
+Launching experiment with tau=0.1, cb=3.0, cu=2.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.1_cb_3.0_cu_2.0/ already exists. We skip it
+Launching experiment with tau=0.2, cb=0.0, cu=0.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.2_cb_0.0_cu_0.0/ already exists. We skip it
+Launching experiment with tau=0.2, cb=0.0, cu=0.5
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.2_cb_0.0_cu_0.5/ already exists. We skip it
+Launching experiment with tau=0.2, cb=0.0, cu=1.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.2_cb_0.0_cu_1.0/ already exists. We skip it
+Launching experiment with tau=0.2, cb=0.0, cu=2.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.2_cb_0.0_cu_2.0/ already exists. We skip it
+Launching experiment with tau=0.2, cb=1.0, cu=0.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.2_cb_1.0_cu_0.0/ already exists. We skip it
+Launching experiment with tau=0.2, cb=1.0, cu=0.5
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.2_cb_1.0_cu_0.5/ already exists. We skip it
+Launching experiment with tau=0.2, cb=1.0, cu=1.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.2_cb_1.0_cu_1.0/ already exists. We skip it
+Launching experiment with tau=0.2, cb=1.0, cu=2.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.2_cb_1.0_cu_2.0/ already exists. We skip it
+Launching experiment with tau=0.2, cb=2.0, cu=0.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.2_cb_2.0_cu_0.0/ already exists. We skip it
+Launching experiment with tau=0.2, cb=2.0, cu=0.5
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.2_cb_2.0_cu_0.5/ already exists. We skip it
+Launching experiment with tau=0.2, cb=2.0, cu=1.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.2_cb_2.0_cu_1.0/ already exists. We skip it
+Launching experiment with tau=0.2, cb=2.0, cu=2.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.2_cb_2.0_cu_2.0/ already exists. We skip it
+Launching experiment with tau=0.2, cb=3.0, cu=0.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.2_cb_3.0_cu_0.0/ already exists. We skip it
+Launching experiment with tau=0.2, cb=3.0, cu=0.5
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.2_cb_3.0_cu_0.5/ already exists. We skip it
+Launching experiment with tau=0.2, cb=3.0, cu=1.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.2_cb_3.0_cu_1.0/ already exists. We skip it
+Launching experiment with tau=0.2, cb=3.0, cu=2.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.2_cb_3.0_cu_2.0/ already exists. We skip it
+Launching experiment with tau=0.3, cb=0.0, cu=0.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.3_cb_0.0_cu_0.0/ already exists. We skip it
+Launching experiment with tau=0.3, cb=0.0, cu=0.5
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.3_cb_0.0_cu_0.5/ already exists. We skip it
+Launching experiment with tau=0.3, cb=0.0, cu=1.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.3_cb_0.0_cu_1.0/ already exists. We skip it
+Launching experiment with tau=0.3, cb=0.0, cu=2.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.3_cb_0.0_cu_2.0/ already exists. We skip it
+Launching experiment with tau=0.3, cb=1.0, cu=0.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.3_cb_1.0_cu_0.0/ already exists. We skip it
+Launching experiment with tau=0.3, cb=1.0, cu=0.5
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.3_cb_1.0_cu_0.5/ already exists. We skip it
+Launching experiment with tau=0.3, cb=1.0, cu=1.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.3_cb_1.0_cu_1.0/ already exists. We skip it
+Launching experiment with tau=0.3, cb=1.0, cu=2.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.3_cb_1.0_cu_2.0/ already exists. We skip it
+Launching experiment with tau=0.3, cb=2.0, cu=0.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.3_cb_2.0_cu_0.0/ already exists. We skip it
+Launching experiment with tau=0.3, cb=2.0, cu=0.5
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.3_cb_2.0_cu_0.5/ already exists. We skip it
+Launching experiment with tau=0.3, cb=2.0, cu=1.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.3_cb_2.0_cu_1.0/ already exists. We skip it
+Launching experiment with tau=0.3, cb=2.0, cu=2.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.3_cb_2.0_cu_2.0/ already exists. We skip it
+Launching experiment with tau=0.3, cb=3.0, cu=0.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.3_cb_3.0_cu_0.0/ already exists. We skip it
+Launching experiment with tau=0.3, cb=3.0, cu=0.5
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.3_cb_3.0_cu_0.5/ already exists. We skip it
+Launching experiment with tau=0.3, cb=3.0, cu=1.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.3_cb_3.0_cu_1.0/ already exists. We skip it
+Launching experiment with tau=0.3, cb=3.0, cu=2.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.3_cb_3.0_cu_2.0/ already exists. We skip it
+Launching experiment with tau=0.4, cb=0.0, cu=0.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.4_cb_0.0_cu_0.0/ already exists. We skip it
+Launching experiment with tau=0.4, cb=0.0, cu=0.5
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.4_cb_0.0_cu_0.5/ already exists. We skip it
+Launching experiment with tau=0.4, cb=0.0, cu=1.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.4_cb_0.0_cu_1.0/ already exists. We skip it
+Launching experiment with tau=0.4, cb=0.0, cu=2.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.4_cb_0.0_cu_2.0/ already exists. We skip it
+Launching experiment with tau=0.4, cb=1.0, cu=0.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.4_cb_1.0_cu_0.0/ already exists. We skip it
+Launching experiment with tau=0.4, cb=1.0, cu=0.5
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.4_cb_1.0_cu_0.5/ already exists. We skip it
+Launching experiment with tau=0.4, cb=1.0, cu=1.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.4_cb_1.0_cu_1.0/ already exists. We skip it
+Launching experiment with tau=0.4, cb=1.0, cu=2.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.4_cb_1.0_cu_2.0/ already exists. We skip it
+Launching experiment with tau=0.4, cb=2.0, cu=0.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.4_cb_2.0_cu_0.0/ already exists. We skip it
+Launching experiment with tau=0.4, cb=2.0, cu=0.5
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.4_cb_2.0_cu_0.5/ already exists. We skip it
+Launching experiment with tau=0.4, cb=2.0, cu=1.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.4_cb_2.0_cu_1.0/ already exists. We skip it
+Launching experiment with tau=0.4, cb=2.0, cu=2.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.4_cb_2.0_cu_2.0/ already exists. We skip it
+Launching experiment with tau=0.4, cb=3.0, cu=0.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.4_cb_3.0_cu_0.0/ already exists. We skip it
+Launching experiment with tau=0.4, cb=3.0, cu=0.5
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.4_cb_3.0_cu_0.5/ already exists. We skip it
+Launching experiment with tau=0.4, cb=3.0, cu=1.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.4_cb_3.0_cu_1.0/ already exists. We skip it
+Launching experiment with tau=0.4, cb=3.0, cu=2.0
+Folder /scratch/db194/mom6/feb2026/channel_p5/tau_0.4_cb_3.0_cu_2.0/ already exists. We skip it
