@@ -2,6 +2,10 @@
 ## Dhruv Balwada, Pavel Perezhogin, Alistair Adcroft and Laure Zanna
 ### Lamont-Doherty Earth Observatory, Columbia University/ Courant Institute of Mathematical Sciences, New York University/ Princeton University
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19054968.svg)](https://doi.org/10.5281/zenodo.19054968)
+
+An archived snapshot of this code is available on Zenodo. The badge above links to the concept DOI ([10.5281/zenodo.19054968](https://doi.org/10.5281/zenodo.19054968)), which always resolves to the latest version. The version cited in the paper is v1.0 ([10.5281/zenodo.19054967](https://doi.org/10.5281/zenodo.19054967)).
+
 Repo shows how results from this paper can be reproduced.
 - Folder `paper_figure_notebooks` has the code for producing all the figures.
 - Folder `online_analysis_Greene/exp_gen_scripts` has code for generating the high resolution, low resolution, and parameterized simulations.
